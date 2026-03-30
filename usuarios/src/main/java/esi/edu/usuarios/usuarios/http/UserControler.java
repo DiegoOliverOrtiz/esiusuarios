@@ -34,4 +34,20 @@ public class UserControler {
        }
        return result;
     }
+
+    @PostMapping("/register")
+    public String register(@RequestBody Map<String, String> credenciales) {
+        JSONObject jsoCredenciales = new JSONObject(credenciales);
+        String name = jsoCredenciales.optString("name");
+        String password = jsoCredenciales.optString("pwd");
+
+        if(name.isEmpty() || password.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Credenciales vacías");
+        }
+       String result = service.register(name, password);
+       if(result == null) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "RegistroFallido");
+       }
+       return result;
+    }
 }

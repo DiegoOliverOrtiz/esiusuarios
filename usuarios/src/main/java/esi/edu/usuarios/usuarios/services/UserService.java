@@ -2,13 +2,16 @@ package esi.edu.usuarios.usuarios.services;
 
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import esi.edu.usuarios.usuarios.auxiliares.Manager;
 import esi.edu.usuarios.usuarios.model.User;
 
 @Service
 public class UserService {
     private List<User> users; 
+
     public UserService() {
         this.users = List.of(
             new User("Pepe", "pepe123", "1234"),
@@ -32,5 +35,16 @@ public class UserService {
             }
         }
         return null;
+    }
+
+    public String register(String email, String pwd1){
+        User newUser = new User(email, pwd1, String.valueOf(this.users.size() + 1));
+        this.users.add(newUser);
+
+        Manager.getInstance().getEmailService().sendEmail(email,
+            "asunto", "Bienvenido a esiusuarios",
+            "texto", "Bienvenido al sistema. Confirma  tu registro aquí: http://localhost:8080/users/confirm?token=" + newUser.getToken()
+        );
+        return "Correo de confirmación enviado";
     }
 }
