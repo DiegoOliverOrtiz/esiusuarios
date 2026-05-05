@@ -1,13 +1,14 @@
 package esi.edu.usuarios.usuarios.auxiliares;
 
 import esi.edu.usuarios.usuarios.services.EmailService;
+import esi.edu.usuarios.usuarios.services.EmailServiceFalso;
 
 public class Manager {
     private static Manager instance;
     private EmailService emailService;
 
     private Manager() {
-        this.emailService = new EmailService();
+        this.emailService = new EmailServiceFalso();
     }
 
     public synchronized static Manager getInstance() {
