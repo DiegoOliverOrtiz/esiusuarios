@@ -1,9 +1,15 @@
 package esi.edu.usuarios.usuarios.http;
 
+import java.time.Duration;
+
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,39 +20,88 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import esi.edu.usuarios.usuarios.dto.LoginRequest;
 import esi.edu.usuarios.usuarios.dto.RegisterUserRequest;
 import esi.edu.usuarios.usuarios.dto.UserResponse;
 import esi.edu.usuarios.usuarios.model.User;
+import esi.edu.usuarios.usuarios.services.RateLimiterService;
 import esi.edu.usuarios.usuarios.services.UserService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/users")
 @Validated
 public class UserControler {
+    private static final String AUTH_GENERIC_ERROR = "No se ha podido completar la solicitud. Revisa los datos e intentalo de nuevo.";
+    private static final String SESSION_COOKIE = "session_id";
+    private final Logger logger = LoggerFactory.getLogger(UserControler.class);
+
     @Autowired
     private UserService service;
 
-    @PostMapping("/login")
-    public String login(@Valid @RequestBody LoginRequest credenciales) {
-        String result = service.login(credenciales.getName(), credenciales.getPwd());
-        if (result == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Credenciales incorrectas");
-        }
+    @Autowired
+    private RateLimiterService rateLimiterService;
 
-        return result;
+    @Value("${app.session.cookie.secure:false}")
+    private boolean secureCookie;
+
+    @Value("${app.session.cookie.same-site:Lax}")
+    private String sameSite;
+
+    @Value("${app.session.cookie.max-age-seconds:7200}")
+    private long sessionMaxAgeSeconds;
+
+    @PostMapping("/login")
+    public ResponseEntity<UserResponse> login(@Valid @RequestBody LoginRequest credenciales, HttpServletRequest request) {
+        String ip = clientIp(request);
+        rateLimiterService.check("login", ip + "|" + credenciales.getName(), 5, Duration.ofMinutes(15));
+
+        User user = service.authenticate(credenciales.getName(), credenciales.getPwd())
+            .map(service::startSession)
+            .orElseThrow(() -> {
+                logger.warn("Login fallido ip={} login={}", ip, safeLogin(credenciales.getName()));
+                return new ResponseStatusException(HttpStatus.UNAUTHORIZED, AUTH_GENERIC_ERROR);
+            });
+
+        logger.info("Login correcto usuarioId={} ip={}", user.getId(), ip);
+
+        return ResponseEntity.ok()
+            .header(HttpHeaders.SET_COOKIE, sessionCookie(user.getToken()).toString())
+            .body(new UserResponse(user));
     }
 
     @PostMapping("/register")
     public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterUserRequest request) {
         try {
-            User user = service.register(request);
-            return ResponseEntity.status(HttpStatus.CREATED).body(new UserResponse(user));
+            User user = service.startSession(service.register(request));
+            return ResponseEntity.status(HttpStatus.CREATED)
+                .header(HttpHeaders.SET_COOKIE, sessionCookie(user.getToken()).toString())
+                .body(new UserResponse(user));
         } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, AUTH_GENERIC_ERROR);
         }
+    }
+
+    @GetMapping("/me")
+    public UserResponse me(@CookieValue(name = SESSION_COOKIE, required = false) String token) {
+        return service.findBySessionToken(token)
+            .map(UserResponse::new)
+            .orElseThrow(() -> {
+                logger.warn("Acceso denegado a /users/me por sesion ausente o invalida");
+                return new ResponseStatusException(HttpStatus.UNAUTHORIZED, AUTH_GENERIC_ERROR);
+            });
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@CookieValue(name = SESSION_COOKIE, required = false) String token) {
+        service.logout(token);
+        return ResponseEntity.noContent()
+            .header(HttpHeaders.SET_COOKIE, clearSessionCookie().toString())
+            .build();
     }
 
     @GetMapping("/confirm")
@@ -61,6 +116,46 @@ public class UserControler {
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public String handleValidationError() {
-        return "La peticion de registro no es valida.";
+        return AUTH_GENERIC_ERROR;
+    }
+
+    private ResponseCookie sessionCookie(String token) {
+        return ResponseCookie.from(SESSION_COOKIE, token)
+            .httpOnly(true)
+            .secure(secureCookie)
+            .sameSite(sameSite)
+            .path("/")
+            .maxAge(Duration.ofSeconds(sessionMaxAgeSeconds))
+            .build();
+    }
+
+    private ResponseCookie clearSessionCookie() {
+        return ResponseCookie.from(SESSION_COOKIE, "")
+            .httpOnly(true)
+            .secure(secureCookie)
+            .sameSite(sameSite)
+            .path("/")
+            .maxAge(Duration.ZERO)
+            .build();
+    }
+
+    private String clientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
+    }
+
+    private String safeLogin(String login) {
+        if (login == null || login.isBlank()) {
+            return "<vacio>";
+        }
+        String trimmed = login.strip().toLowerCase();
+        int at = trimmed.indexOf('@');
+        if (at <= 1) {
+            return "***";
+        }
+        return trimmed.charAt(0) + "***" + trimmed.substring(at);
     }
 }
