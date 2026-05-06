@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PastOrPresent;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public class RegisterUserRequest {
@@ -33,6 +34,17 @@ public class RegisterUserRequest {
 
     @NotBlank
     private String confirmPassword;
+
+    @Size(max = 20)
+    @Pattern(regexp = "^[A-Za-z0-9\\- ]*$")
+    private String dniNie;
+
+    @Size(max = 30)
+    @Pattern(regexp = "^[0-9+()\\- ]*$")
+    private String telefono;
+
+    @Size(max = 240)
+    private String direccion;
 
     public String getNombre() {
         return nombre;
@@ -88,5 +100,29 @@ public class RegisterUserRequest {
 
     public void setConfirmPassword(String confirmPassword) {
         this.confirmPassword = confirmPassword;
+    }
+
+    public String getDniNie() {
+        return dniNie;
+    }
+
+    public void setDniNie(String dniNie) {
+        this.dniNie = dniNie;
+    }
+
+    public String getTelefono() {
+        return telefono;
+    }
+
+    public void setTelefono(String telefono) {
+        this.telefono = telefono;
+    }
+
+    public String getDireccion() {
+        return direccion;
+    }
+
+    public void setDireccion(String direccion) {
+        this.direccion = direccion;
     }
 }

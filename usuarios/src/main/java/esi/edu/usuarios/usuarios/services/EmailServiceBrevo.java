@@ -71,11 +71,16 @@ public class EmailServiceBrevo extends EmailService {
 
     public Map<String, Object> safeStatus() {
         String cleanApiKey = clean(apiKey);
+        String envMailApi = clean(System.getenv("MAIL_API"));
         return Map.of(
             "apiUrl", clean(apiUrl),
             "apiKeyConfigured", cleanApiKey != null && !cleanApiKey.isBlank(),
             "apiKeyLength", cleanApiKey == null ? 0 : cleanApiKey.length(),
             "apiKeyLooksLikeBrevo", cleanApiKey != null && cleanApiKey.startsWith("xkeysib-"),
+            "apiKeyIsDummy", "dummy".equals(cleanApiKey),
+            "envMailApiConfigured", envMailApi != null && !envMailApi.isBlank(),
+            "envMailApiLength", envMailApi == null ? 0 : envMailApi.length(),
+            "envMailApiLooksLikeBrevo", envMailApi != null && envMailApi.startsWith("xkeysib-"),
             "senderName", clean(senderName),
             "senderAddress", clean(senderAddress)
         );

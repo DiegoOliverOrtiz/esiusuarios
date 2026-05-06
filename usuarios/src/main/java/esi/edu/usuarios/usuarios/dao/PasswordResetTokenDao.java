@@ -16,4 +16,8 @@ public interface PasswordResetTokenDao extends JpaRepository<PasswordResetToken,
     @Modifying
     @Query("UPDATE PasswordResetToken t SET t.usado = true, t.fechaUso = :fechaUso WHERE t.userId = :userId AND t.usado = false")
     void markActiveTokensAsUsed(@Param("userId") Long userId, @Param("fechaUso") Instant fechaUso);
+
+    @Modifying
+    @Query("UPDATE PasswordResetToken t SET t.usado = true, t.fechaUso = :fechaUso WHERE t.usado = false AND t.fechaExpiracion <= :fechaUso")
+    int markExpiredTokensAsUsed(@Param("fechaUso") Instant fechaUso);
 }

@@ -1,5 +1,7 @@
 package esi.edu.usuarios.usuarios.http;
 
+import java.time.Duration;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -18,6 +20,7 @@ import esi.edu.usuarios.usuarios.dto.PasswordResetConfirmRequest;
 import esi.edu.usuarios.usuarios.dto.PasswordResetRequest;
 import esi.edu.usuarios.usuarios.dto.TokenValidationResponse;
 import esi.edu.usuarios.usuarios.services.PasswordResetService;
+import esi.edu.usuarios.usuarios.services.RateLimiterService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
@@ -26,9 +29,11 @@ import jakarta.validation.Valid;
 @Validated
 public class PasswordResetController {
     private final PasswordResetService passwordResetService;
+    private final RateLimiterService rateLimiterService;
 
-    public PasswordResetController(PasswordResetService passwordResetService) {
+    public PasswordResetController(PasswordResetService passwordResetService, RateLimiterService rateLimiterService) {
         this.passwordResetService = passwordResetService;
+        this.rateLimiterService = rateLimiterService;
     }
 
     @PostMapping("/request")
@@ -37,19 +42,28 @@ public class PasswordResetController {
         HttpServletRequest httpRequest,
         @RequestHeader(value = "User-Agent", required = false) String userAgent
     ) {
-        passwordResetService.requestReset(request, clientIp(httpRequest), userAgent);
+        String ip = clientIp(httpRequest);
+        rateLimiterService.check("password-reset-request", ip + "|" + emailFrom(request), 3, Duration.ofMinutes(15));
+        passwordResetService.requestReset(request, ip, userAgent);
         return ResponseEntity
             .status(HttpStatus.ACCEPTED)
             .body(new MessageResponse(PasswordResetService.GENERIC_REQUEST_MESSAGE));
     }
 
     @GetMapping("/validate")
-    public TokenValidationResponse validate(@RequestParam(required = false) String token) {
+    public TokenValidationResponse validate(@RequestParam(required = false) String token, HttpServletRequest request) {
+        rateLimiterService.check("password-reset-validate", clientIp(request), 20, Duration.ofMinutes(15));
         return new TokenValidationResponse(passwordResetService.validateToken(token));
     }
 
     @PostMapping("/confirm")
-    public MessageResponse confirm(@Valid @RequestBody PasswordResetConfirmRequest request) {
+    public MessageResponse confirm(@Valid @RequestBody PasswordResetConfirmRequest request, HttpServletRequest httpRequest) {
+        rateLimiterService.check(
+            "password-reset-confirm",
+            clientIp(httpRequest) + "|" + tokenRateKey(request.getToken()),
+            5,
+            Duration.ofMinutes(15)
+        );
         passwordResetService.confirmReset(request);
         return new MessageResponse("Contrasena actualizada correctamente");
     }
@@ -67,5 +81,13 @@ public class PasswordResetController {
             return forwarded.split(",")[0].trim();
         }
         return request.getRemoteAddr();
+    }
+
+    private String emailFrom(PasswordResetRequest request) {
+        return request == null || request.getEmail() == null ? "" : request.getEmail();
+    }
+
+    private String tokenRateKey(String token) {
+        return token == null ? "" : Integer.toHexString(token.hashCode());
     }
 }

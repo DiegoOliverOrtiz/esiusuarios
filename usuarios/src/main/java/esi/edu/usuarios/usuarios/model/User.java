@@ -1,6 +1,7 @@
 package esi.edu.usuarios.usuarios.model;
 
 import java.time.LocalDate;
+import java.time.Instant;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -47,6 +48,17 @@ public class User {
 
     private String token;
     private String confirmationToken;
+    private int failedLoginAttempts = 0;
+    private Instant accountLockedUntil;
+
+    @Column(length = 512)
+    private String dniNieEncrypted;
+
+    @Column(length = 512)
+    private String telefonoEncrypted;
+
+    @Column(length = 1024)
+    private String direccionEncrypted;
 
     public User() {}
 
@@ -144,6 +156,46 @@ public class User {
 
     public void setConfirmationToken(String confirmationToken) {
         this.confirmationToken = confirmationToken;
+    }
+
+    public int getFailedLoginAttempts() {
+        return failedLoginAttempts;
+    }
+
+    public void setFailedLoginAttempts(int failedLoginAttempts) {
+        this.failedLoginAttempts = failedLoginAttempts;
+    }
+
+    public Instant getAccountLockedUntil() {
+        return accountLockedUntil;
+    }
+
+    public void setAccountLockedUntil(Instant accountLockedUntil) {
+        this.accountLockedUntil = accountLockedUntil;
+    }
+
+    public String getDniNieEncrypted() {
+        return dniNieEncrypted;
+    }
+
+    public void setDniNieEncrypted(String dniNieEncrypted) {
+        this.dniNieEncrypted = dniNieEncrypted;
+    }
+
+    public String getTelefonoEncrypted() {
+        return telefonoEncrypted;
+    }
+
+    public void setTelefonoEncrypted(String telefonoEncrypted) {
+        this.telefonoEncrypted = telefonoEncrypted;
+    }
+
+    public String getDireccionEncrypted() {
+        return direccionEncrypted;
+    }
+
+    public void setDireccionEncrypted(String direccionEncrypted) {
+        this.direccionEncrypted = direccionEncrypted;
     }
 
     public String getName() {

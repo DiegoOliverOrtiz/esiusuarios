@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -36,7 +37,7 @@ public class PasswordResetService {
     private static final String PASSWORD_POLICY_MESSAGE = "No se pudo establecer la contrasena. Verifique la politica de seguridad.";
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final Duration TOKEN_TTL = Duration.ofMinutes(15);
-    private static final int MAX_REQUESTS_PER_WINDOW = 5;
+    private static final int MAX_REQUESTS_PER_WINDOW = 3;
     private static final Duration RATE_LIMIT_WINDOW = Duration.ofMinutes(15);
 
     private final Logger logger = LoggerFactory.getLogger(PasswordResetService.class);
@@ -67,6 +68,8 @@ public class PasswordResetService {
 
     @Transactional
     public void requestReset(PasswordResetRequest request, String ipAddress, String userAgent) {
+        invalidateExpiredTokens();
+
         if (request == null) {
             return;
         }
@@ -109,6 +112,8 @@ public class PasswordResetService {
 
     @Transactional
     public void confirmReset(PasswordResetConfirmRequest request) {
+        invalidateExpiredTokens();
+
         PasswordResetToken resetToken = findUsableToken(request.getToken())
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, INVALID_LINK_MESSAGE));
 
@@ -136,6 +141,15 @@ public class PasswordResetService {
 
         sendConfirmationEmail(user);
         logger.info("Contrasena actualizada correctamente para usuario {}", user.getId());
+    }
+
+    @Scheduled(fixedDelayString = "${app.password-reset.cleanup-delay-ms:300000}")
+    @Transactional
+    public void invalidateExpiredTokens() {
+        int updated = tokenDao.markExpiredTokensAsUsed(Instant.now());
+        if (updated > 0) {
+            logger.info("Tokens de recuperacion caducados invalidados: {}", updated);
+        }
     }
 
     private Optional<PasswordResetToken> findUsableToken(String token) {

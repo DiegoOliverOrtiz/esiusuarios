@@ -31,3 +31,22 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Secrets/local runtime ###
+.env
+.env.*
+!.env.example
+application-local.properties
+application-secret.properties
+*.generated.sql
+*.log
+data/
+*.mv.db
+*.trace.db
+*.lock.db
+*.pem
+*.pfx
+*.p12
+*.key
+*.keystore
+*.jks

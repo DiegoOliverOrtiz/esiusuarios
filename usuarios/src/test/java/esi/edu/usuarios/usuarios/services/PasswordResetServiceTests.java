@@ -7,11 +7,18 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 import esi.edu.usuarios.usuarios.dao.PasswordResetTokenDao;
@@ -32,6 +39,9 @@ import esi.edu.usuarios.usuarios.model.User;
     "app.frontend-base-url=http://localhost:4200"
 })
 class PasswordResetServiceTests {
+    private static final Pattern BCRYPT_COST_12 = Pattern.compile("^\\$2[aby]\\$12\\$.*");
+    private static final Pattern BASE64_URL_TOKEN = Pattern.compile("^[A-Za-z0-9_-]+$");
+
     @Autowired
     private PasswordResetService passwordResetService;
 
@@ -43,6 +53,11 @@ class PasswordResetServiceTests {
 
     @Autowired
     private PasswordResetTokenDao tokenDao;
+
+    @DynamicPropertySource
+    static void riskDataEncryptionKey(DynamicPropertyRegistry registry) {
+        registry.add("app.risk-data.encryption-key", PasswordResetServiceTests::testKey);
+    }
 
     @BeforeEach
     void setUp() {
@@ -64,6 +79,18 @@ class PasswordResetServiceTests {
     }
 
     @Test
+    void generatedResetTokenIsLongUrlSafeAndRandomLooking() {
+        String firstToken = ReflectionTestUtils.invokeMethod(passwordResetService, "generateToken");
+        String secondToken = ReflectionTestUtils.invokeMethod(passwordResetService, "generateToken");
+
+        assertTrue(firstToken.length() >= 32);
+        assertTrue(secondToken.length() >= 32);
+        assertTrue(BASE64_URL_TOKEN.matcher(firstToken).matches());
+        assertTrue(BASE64_URL_TOKEN.matcher(secondToken).matches());
+        assertNotEquals(firstToken, secondToken);
+    }
+
+    @Test
     void requestWithUnknownEmailDoesNotRevealOrCreateToken() {
         passwordResetService.requestReset(request("unknown@example.com"), "127.0.0.1", "test");
 
@@ -78,6 +105,18 @@ class PasswordResetServiceTests {
         assertFalse(passwordResetService.validateToken(token));
         assertThrows(ResponseStatusException.class,
             () -> passwordResetService.confirmReset(confirm(token, "Cambio#Fuerte81!", "Cambio#Fuerte81!")));
+    }
+
+    @Test
+    void expiredTokensAreMarkedAsUsedInDatabase() {
+        User user = createUser("expired.db@example.com", "expireddb");
+        createToken(user, Instant.now().minusSeconds(60), false);
+
+        passwordResetService.invalidateExpiredTokens();
+
+        PasswordResetToken token = tokenDao.findAll().get(0);
+        assertTrue(token.isUsado());
+        assertTrue(token.getFechaUso() != null);
     }
 
     @Test
@@ -120,7 +159,68 @@ class PasswordResetServiceTests {
         assertFalse(passwordResetService.validateToken(token));
     }
 
+    @Test
+    void registerUsesBCryptCostTwelveAndUniqueSaltPerUser() {
+        User first = createUser("salt.one@example.com", "saltone");
+        User second = createUser("salt.two@example.com", "salttwo");
+        BCryptPasswordEncoder verifier = new BCryptPasswordEncoder();
+
+        assertTrue(BCRYPT_COST_12.matcher(first.getPassword()).matches());
+        assertTrue(BCRYPT_COST_12.matcher(second.getPassword()).matches());
+        assertNotEquals(first.getPassword(), second.getPassword());
+        assertTrue(verifier.matches("Inicio#Fuerte79!", first.getPassword()));
+        assertTrue(verifier.matches("Inicio#Fuerte79!", second.getPassword()));
+    }
+
+    @Test
+    void accountIsLockedAfterFiveFailedLoginAttempts() {
+        createUser("locked@example.com", "lockeduser");
+
+        for (int attempt = 0; attempt < 5; attempt++) {
+            assertEquals(null, userService.login("locked@example.com", "Incorrecta#12345"));
+        }
+
+        User locked = userDao.findByEmail("locked@example.com").orElseThrow();
+        assertEquals(5, locked.getFailedLoginAttempts());
+        assertTrue(locked.getAccountLockedUntil() != null);
+        assertEquals(null, userService.login("locked@example.com", "Inicio#Fuerte79!"));
+    }
+
+    @Test
+    void successfulLoginBeforeLockResetsFailedAttempts() {
+        createUser("reset.attempts@example.com", "resetattempts");
+
+        assertEquals(null, userService.login("reset.attempts@example.com", "Incorrecta#12345"));
+        assertEquals(null, userService.login("reset.attempts@example.com", "Incorrecta#12345"));
+        assertEquals("Login exitoso", userService.login("reset.attempts@example.com", "Inicio#Fuerte79!"));
+
+        User updated = userDao.findByEmail("reset.attempts@example.com").orElseThrow();
+        assertEquals(0, updated.getFailedLoginAttempts());
+        assertTrue(updated.getAccountLockedUntil() == null);
+    }
+
+    @Test
+    void registerEncryptsRiskDataBeforePersisting() {
+        RegisterUserRequest request = registerRequest("risk@example.com", "riskuser");
+        request.setDniNie("12345678Z");
+        request.setTelefono("+34 600 111 222");
+        request.setDireccion("Calle Mayor 1");
+
+        User saved = userService.register(request);
+
+        assertNotEquals("12345678Z", saved.getDniNieEncrypted());
+        assertNotEquals("+34 600 111 222", saved.getTelefonoEncrypted());
+        assertNotEquals("Calle Mayor 1", saved.getDireccionEncrypted());
+        assertTrue(saved.getDniNieEncrypted() != null);
+        assertTrue(saved.getTelefonoEncrypted() != null);
+        assertTrue(saved.getDireccionEncrypted() != null);
+    }
+
     private User createUser(String email, String username) {
+        return userService.register(registerRequest(email, username));
+    }
+
+    private RegisterUserRequest registerRequest(String email, String username) {
         RegisterUserRequest request = new RegisterUserRequest();
         request.setNombre("Laura");
         request.setApellidos("Martinez Sol");
@@ -128,7 +228,7 @@ class PasswordResetServiceTests {
         request.setUsername(username);
         request.setPassword("Inicio#Fuerte79!");
         request.setConfirmPassword("Inicio#Fuerte79!");
-        return userService.register(request);
+        return request;
     }
 
     private PasswordResetRequest request(String email) {
@@ -155,5 +255,11 @@ class PasswordResetServiceTests {
         token.setUsado(used);
         tokenDao.save(token);
         return plainToken;
+    }
+
+    private static String testKey() {
+        byte[] key = new byte[32];
+        new SecureRandom().nextBytes(key);
+        return Base64.getEncoder().encodeToString(key);
     }
 }
