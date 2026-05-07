@@ -2,10 +2,17 @@ package esi.edu.usuarios.usuarios.services;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+
+import com.warrenstrange.googleauth.GoogleAuthenticator;
+import com.warrenstrange.googleauth.GoogleAuthenticatorKey;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -13,6 +20,9 @@ import org.springframework.stereotype.Service;
 
 import esi.edu.usuarios.usuarios.dao.UserDao;
 import esi.edu.usuarios.usuarios.dto.RegisterUserRequest;
+import esi.edu.usuarios.usuarios.dto.TwoFactorSetupResponse;
+import esi.edu.usuarios.usuarios.dto.UpdateProfileRequest;
+import esi.edu.usuarios.usuarios.dto.UserResponse;
 import esi.edu.usuarios.usuarios.model.User;
 
 @Service
@@ -20,17 +30,22 @@ public class UserService {
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final int MAX_FAILED_LOGIN_ATTEMPTS = 5;
     private static final Duration ACCOUNT_LOCK_DURATION = Duration.ofMinutes(15);
+    private static final Duration TWO_FACTOR_CHALLENGE_TTL = Duration.ofMinutes(5);
+    private static final String TWO_FACTOR_ISSUER = "ESI Entradas";
 
     private final UserDao userDao;
     private final PasswordPolicy passwordPolicy;
     private final RiskDataEncryptionService riskDataEncryptionService;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final GoogleAuthenticator googleAuthenticator;
+    private final Map<String, PendingTwoFactorLogin> pendingTwoFactorLogins = new ConcurrentHashMap<>();
 
     public UserService(UserDao userDao, PasswordPolicy passwordPolicy, RiskDataEncryptionService riskDataEncryptionService) {
         this.userDao = userDao;
         this.passwordPolicy = passwordPolicy;
         this.riskDataEncryptionService = riskDataEncryptionService;
         this.passwordEncoder = new BCryptPasswordEncoder(12);
+        this.googleAuthenticator = new GoogleAuthenticator();
     }
 
     public String login(String name, String password) {
@@ -70,6 +85,63 @@ public class UserService {
         return this.userDao.save(user);
     }
 
+    public String beginTwoFactorLogin(User user) {
+        String challengeToken = UUID.randomUUID().toString();
+        pendingTwoFactorLogins.put(
+            challengeToken,
+            new PendingTwoFactorLogin(user.getId(), Instant.now().plus(TWO_FACTOR_CHALLENGE_TTL))
+        );
+        return challengeToken;
+    }
+
+    public User completeTwoFactorLogin(String challengeToken, String code) {
+        PendingTwoFactorLogin challenge = pendingTwoFactorLogins.remove(challengeToken);
+        if (challenge == null || challenge.expiresAt().isBefore(Instant.now())) {
+            throw new IllegalArgumentException("El reto 2FA ha caducado.");
+        }
+
+        User user = this.userDao.findById(challenge.userId())
+            .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado."));
+
+        if (!user.isTwoFactorEnabled() || !verifyTotp(user, code)) {
+            throw new IllegalArgumentException("Codigo 2FA invalido.");
+        }
+
+        return startSession(user);
+    }
+
+    public TwoFactorSetupResponse setupTwoFactor(String token) {
+        User user = authenticatedUser(token);
+        GoogleAuthenticatorKey key = googleAuthenticator.createCredentials();
+
+        user.setTwoFactorSecret(key.getKey());
+        user.setTwoFactorEnabled(false);
+        this.userDao.save(user);
+
+        String otpAuthUrl = buildOtpAuthUrl(user.getEmail(), key.getKey());
+        String qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data="
+            + URLEncoder.encode(otpAuthUrl, StandardCharsets.UTF_8);
+
+        return new TwoFactorSetupResponse(qrUrl, key.getKey());
+    }
+
+    public UserResponse verifyAndEnableTwoFactor(String token, String code) {
+        User user = authenticatedUser(token);
+        if (!verifyTotp(user, code)) {
+            throw new IllegalArgumentException("Codigo 2FA invalido.");
+        }
+
+        user.setTwoFactorEnabled(true);
+        return toProfileResponse(this.userDao.save(user));
+    }
+
+    public UserResponse disableTwoFactor(String token) {
+        User user = authenticatedUser(token);
+        user.setTwoFactorEnabled(false);
+        user.setTwoFactorSecret(null);
+        return toProfileResponse(this.userDao.save(user));
+    }
+
     public void logout(String token) {
         if (token == null || token.isBlank()) {
             return;
@@ -86,6 +158,37 @@ public class UserService {
             return Optional.empty();
         }
         return this.userDao.findByToken(token);
+    }
+
+    public Optional<UserResponse> profileBySessionToken(String token) {
+        return findBySessionToken(token).map(this::toProfileResponse);
+    }
+
+    public UserResponse updateProfile(String token, UpdateProfileRequest request) {
+        User user = authenticatedUser(token);
+
+        normalizeProfileRequest(request);
+
+        if (!EMAIL_PATTERN.matcher(request.getEmail()).matches()) {
+            throw new IllegalArgumentException("El correo no tiene un formato valido.");
+        }
+        Optional<User> existingEmail = findByCanonicalEmail(request.getEmail());
+        if (existingEmail.isPresent() && !existingEmail.get().getId().equals(user.getId())) {
+            throw new IllegalArgumentException("Ya existe una cuenta con ese correo.");
+        }
+        if (request.getUsername() != null) {
+            Optional<User> existingUsername = this.userDao.findByUsername(request.getUsername());
+            if (existingUsername.isPresent() && !existingUsername.get().getId().equals(user.getId())) {
+                throw new IllegalArgumentException("Ya existe una cuenta con ese alias.");
+            }
+        }
+
+        user.setNombre(request.getNombre());
+        user.setApellidos(request.getApellidos());
+        user.setEmail(request.getEmail());
+        user.setUsername(request.getUsername());
+        user.setFechaNacimiento(request.getFechaNacimiento());
+        return toProfileResponse(this.userDao.save(user));
     }
 
     public String checkToken(String token) {
@@ -154,6 +257,22 @@ public class UserService {
         request.setDireccion(optionalStrip(request.getDireccion()));
     }
 
+    private void normalizeProfileRequest(UpdateProfileRequest request) {
+        request.setNombre(strip(request.getNombre()));
+        request.setApellidos(strip(request.getApellidos()));
+        request.setEmail(normalizeEmail(request.getEmail()));
+        request.setUsername(optionalNormalize(request.getUsername()));
+    }
+
+    private UserResponse toProfileResponse(User user) {
+        return new UserResponse(user);
+    }
+
+    private User authenticatedUser(String token) {
+        return findBySessionToken(token)
+            .orElseThrow(() -> new IllegalArgumentException("Sesion no valida."));
+    }
+
     private void validateRequiredFields(RegisterUserRequest request) {
         if (isBlank(request.getNombre())
             || isBlank(request.getApellidos())
@@ -203,6 +322,27 @@ public class UserService {
             .filter(user -> normalizeEmail(user.getEmail()).equals(canonicalEmail))
             .findFirst();
     }
+
+    private boolean verifyTotp(User user, String codeText) {
+        if (user.getTwoFactorSecret() == null || user.getTwoFactorSecret().isBlank()) {
+            return false;
+        }
+        if (codeText == null || !codeText.matches("^\\d{6}$")) {
+            return false;
+        }
+        return googleAuthenticator.authorize(user.getTwoFactorSecret(), Integer.parseInt(codeText));
+    }
+
+    private String buildOtpAuthUrl(String email, String secret) {
+        String label = URLEncoder.encode(TWO_FACTOR_ISSUER + ":" + email, StandardCharsets.UTF_8);
+        String issuer = URLEncoder.encode(TWO_FACTOR_ISSUER, StandardCharsets.UTF_8);
+        return "otpauth://totp/" + label
+            + "?secret=" + secret
+            + "&issuer=" + issuer
+            + "&algorithm=SHA1&digits=6&period=30";
+    }
+
+    private record PendingTwoFactorLogin(Long userId, Instant expiresAt) {}
 
     private boolean passwordMatches(User user, String rawPassword) {
         if (rawPassword == null || user.getPassword() == null) {

@@ -48,7 +48,10 @@ public class User {
 
     private String token;
     private String confirmationToken;
-    private int failedLoginAttempts = 0;
+    @Column(length = 64)
+    private String twoFactorSecret;
+    private Boolean twoFactorEnabled = false;
+    private Integer failedLoginAttempts = 0;
     private Instant accountLockedUntil;
 
     @Column(length = 512)
@@ -158,8 +161,24 @@ public class User {
         this.confirmationToken = confirmationToken;
     }
 
+    public String getTwoFactorSecret() {
+        return twoFactorSecret;
+    }
+
+    public void setTwoFactorSecret(String twoFactorSecret) {
+        this.twoFactorSecret = twoFactorSecret;
+    }
+
+    public boolean isTwoFactorEnabled() {
+        return Boolean.TRUE.equals(twoFactorEnabled);
+    }
+
+    public void setTwoFactorEnabled(boolean twoFactorEnabled) {
+        this.twoFactorEnabled = twoFactorEnabled;
+    }
+
     public int getFailedLoginAttempts() {
-        return failedLoginAttempts;
+        return failedLoginAttempts == null ? 0 : failedLoginAttempts;
     }
 
     public void setFailedLoginAttempts(int failedLoginAttempts) {
