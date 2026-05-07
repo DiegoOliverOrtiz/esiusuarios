@@ -12,6 +12,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import esi.edu.usuarios.usuarios.dto.TokenCheckRequest;
+import esi.edu.usuarios.usuarios.dto.TicketEmailRequest;
+import esi.edu.usuarios.usuarios.dto.MessageResponse;
+import esi.edu.usuarios.usuarios.services.EmailServiceBrevo;
 import esi.edu.usuarios.usuarios.services.UserService;
 import jakarta.validation.Valid;
 
@@ -22,6 +25,9 @@ public class ExternalController {
 
     @Autowired
     private UserService service;
+
+    @Autowired
+    private EmailServiceBrevo emailService;
 
     @Value("${app.internal.api.secret:}")
     private String internalApiSecret;
@@ -37,6 +43,16 @@ public class ExternalController {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token invalido");
         }
         return userName;
+    }
+
+    @PostMapping("/sendTicket")
+    public MessageResponse sendTicket(
+        @RequestHeader(value = "X-Internal-Secret", required = false) String internalSecret,
+        @Valid @RequestBody TicketEmailRequest request
+    ) {
+        validateInternalSecret(internalSecret);
+        emailService.sendTicketEmail(request.getTo(), request.getSubject(), request.getHtml());
+        return new MessageResponse("Entradas enviadas correctamente.");
     }
 
     private void validateInternalSecret(String internalSecret) {

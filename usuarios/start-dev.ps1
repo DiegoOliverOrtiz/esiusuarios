@@ -7,4 +7,4 @@ foreach ($connection in $connections) {
 }
 
 Write-Host "Arrancando esiusuarios en http://localhost:$port con perfil dev..."
-mvn.cmd spring-boot:run
+mvn.cmd -Pdev spring-boot:run

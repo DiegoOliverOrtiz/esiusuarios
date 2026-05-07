@@ -44,6 +44,6 @@ Write-Host "MAIL_API cargada desde variable de entorno: si (no se muestra por se
 Write-Host "MAIL_USER: $senderAddress"
 Write-Host "EMAIL_SENDER_NAME: $senderName"
 Write-Host "APP_FRONTEND_URL: $frontendUrl"
-Write-Host "Arrancando esiusuarios..."
+Write-Host "Arrancando esiusuarios con perfil dev..."
 
-mvn.cmd spring-boot:run
+mvn.cmd -Pdev spring-boot:run

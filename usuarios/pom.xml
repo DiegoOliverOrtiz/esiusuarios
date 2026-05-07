@@ -83,7 +83,7 @@
 		<dependency>
 			<groupId>com.h2database</groupId>
 			<artifactId>h2</artifactId>
-			<scope>runtime</scope>
+			<scope>test</scope>
 		</dependency>
 
 		<dependency>
@@ -111,9 +111,6 @@
 	<profiles>
 		<profile>
 			<id>dev</id>
-			<activation>
-				<activeByDefault>true</activeByDefault>
-			</activation>
 			<properties>
 				<spring-boot.run.profiles>dev</spring-boot.run.profiles>
 			</properties>

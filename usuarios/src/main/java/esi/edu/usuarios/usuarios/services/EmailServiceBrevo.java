@@ -69,6 +69,10 @@ public class EmailServiceBrevo extends EmailService {
         sendHttpEmail(email, "Contrasena actualizada en ESI Entradas", html);
     }
 
+    public void sendTicketEmail(String email, String subject, String html) {
+        sendHttpEmail(email, subject, html);
+    }
+
     public Map<String, Object> safeStatus() {
         String cleanApiKey = clean(apiKey);
         String envMailApi = clean(System.getenv("MAIL_API"));
