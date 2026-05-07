@@ -14,6 +14,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -24,7 +25,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import esi.edu.usuarios.usuarios.dto.LoginRequest;
+import esi.edu.usuarios.usuarios.dto.LoginResponse;
 import esi.edu.usuarios.usuarios.dto.RegisterUserRequest;
+import esi.edu.usuarios.usuarios.dto.TwoFactorSetupResponse;
+import esi.edu.usuarios.usuarios.dto.TwoFactorVerifyRequest;
+import esi.edu.usuarios.usuarios.dto.UpdateProfileRequest;
 import esi.edu.usuarios.usuarios.dto.UserResponse;
 import esi.edu.usuarios.usuarios.model.User;
 import esi.edu.usuarios.usuarios.services.RateLimiterService;
@@ -56,22 +61,28 @@ public class UserControler {
     private long sessionMaxAgeSeconds;
 
     @PostMapping("/login")
-    public ResponseEntity<UserResponse> login(@Valid @RequestBody LoginRequest credenciales, HttpServletRequest request) {
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest credenciales, HttpServletRequest request) {
         String ip = clientIp(request);
         rateLimiterService.check("login", ip + "|" + credenciales.getName(), 5, Duration.ofMinutes(15));
 
         User user = service.authenticate(credenciales.getName(), credenciales.getPwd())
-            .map(service::startSession)
             .orElseThrow(() -> {
                 logger.warn("Login fallido ip={} login={}", ip, safeLogin(credenciales.getName()));
                 return new ResponseStatusException(HttpStatus.UNAUTHORIZED, AUTH_GENERIC_ERROR);
             });
 
+        if (user.isTwoFactorEnabled()) {
+            String challengeToken = service.beginTwoFactorLogin(user);
+            logger.info("Login pendiente de 2FA usuarioId={} ip={}", user.getId(), ip);
+            return ResponseEntity.ok(new LoginResponse(challengeToken, user));
+        }
+
+        user = service.startSession(user);
         logger.info("Login correcto usuarioId={} ip={}", user.getId(), ip);
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, sessionCookie(user.getToken()).toString())
-            .body(new UserResponse(user));
+            .body(new LoginResponse(user));
     }
 
     @PostMapping("/register")
@@ -88,12 +99,65 @@ public class UserControler {
 
     @GetMapping("/me")
     public UserResponse me(@CookieValue(name = SESSION_COOKIE, required = false) String token) {
-        return service.findBySessionToken(token)
-            .map(UserResponse::new)
+        return service.profileBySessionToken(token)
             .orElseThrow(() -> {
                 logger.warn("Acceso denegado a /users/me por sesion ausente o invalida");
                 return new ResponseStatusException(HttpStatus.UNAUTHORIZED, AUTH_GENERIC_ERROR);
             });
+    }
+
+    @PutMapping("/me")
+    public UserResponse updateMe(
+        @CookieValue(name = SESSION_COOKIE, required = false) String token,
+        @Valid @RequestBody UpdateProfileRequest request
+    ) {
+        try {
+            return service.updateProfile(token, request);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, AUTH_GENERIC_ERROR);
+        }
+    }
+
+    @PostMapping("/2fa/setup")
+    public TwoFactorSetupResponse setupTwoFactor(@CookieValue(name = SESSION_COOKIE, required = false) String token) {
+        try {
+            return service.setupTwoFactor(token);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, AUTH_GENERIC_ERROR);
+        }
+    }
+
+    @PostMapping("/2fa/verify")
+    public UserResponse verifyTwoFactorSetup(
+        @CookieValue(name = SESSION_COOKIE, required = false) String token,
+        @Valid @RequestBody TwoFactorVerifyRequest request
+    ) {
+        try {
+            return service.verifyAndEnableTwoFactor(token, request.getCode());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, AUTH_GENERIC_ERROR);
+        }
+    }
+
+    @PostMapping("/2fa/login/verify")
+    public ResponseEntity<UserResponse> verifyTwoFactorLogin(@Valid @RequestBody TwoFactorVerifyRequest request) {
+        try {
+            User user = service.completeTwoFactorLogin(request.getChallengeToken(), request.getCode());
+            return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, sessionCookie(user.getToken()).toString())
+                .body(new UserResponse(user));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, AUTH_GENERIC_ERROR);
+        }
+    }
+
+    @PostMapping("/2fa/disable")
+    public UserResponse disableTwoFactor(@CookieValue(name = SESSION_COOKIE, required = false) String token) {
+        try {
+            return service.disableTwoFactor(token);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, AUTH_GENERIC_ERROR);
+        }
     }
 
     @PostMapping("/logout")
