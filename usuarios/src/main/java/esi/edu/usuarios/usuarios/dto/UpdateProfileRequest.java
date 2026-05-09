@@ -5,15 +5,18 @@ import java.time.LocalDate;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.PastOrPresent;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public class UpdateProfileRequest {
     @NotBlank
     @Size(max = 80)
+    @Pattern(regexp = "^[\\p{L}\\p{M} .'-]+$")
     private String nombre;
 
     @NotBlank
     @Size(max = 120)
+    @Pattern(regexp = "^[\\p{L}\\p{M} .'-]+$")
     private String apellidos;
 
     @NotBlank
@@ -22,6 +25,7 @@ public class UpdateProfileRequest {
     private String email;
 
     @Size(max = 60)
+    @Pattern(regexp = "^[A-Za-z0-9._-]*$")
     private String username;
 
     @PastOrPresent

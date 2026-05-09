@@ -3,7 +3,10 @@ package esi.edu.usuarios.usuarios.services;
 import java.time.Duration;
 import java.time.Instant;
 import java.net.URLEncoder;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.nio.charset.StandardCharsets;
+import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -14,6 +17,9 @@ import java.util.regex.Pattern;
 import com.warrenstrange.googleauth.GoogleAuthenticator;
 import com.warrenstrange.googleauth.GoogleAuthenticatorKey;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -29,6 +35,7 @@ import esi.edu.usuarios.usuarios.model.User;
 
 @Service
 public class UserService {
+    private static final Logger logger = LoggerFactory.getLogger(UserService.class);
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final int MAX_FAILED_LOGIN_ATTEMPTS = 5;
     private static final Duration ACCOUNT_LOCK_DURATION = Duration.ofMinutes(15);
@@ -42,6 +49,9 @@ public class UserService {
     private final BCryptPasswordEncoder passwordEncoder;
     private final GoogleAuthenticator googleAuthenticator;
     private final Map<String, PendingTwoFactorLogin> pendingTwoFactorLogins = new ConcurrentHashMap<>();
+
+    @Value("${app.session.cookie.max-age-seconds:7200}")
+    private long sessionMaxAgeSeconds;
 
     public UserService(
         UserDao userDao,
@@ -72,40 +82,48 @@ public class UserService {
         }
 
         if (user.isEmpty()) {
+            logger.warn("Login fallido: usuario no encontrado");
             return Optional.empty();
         }
 
         User foundUser = user.get();
         if (isAccountLocked(foundUser)) {
+            logger.warn("Login bloqueado temporalmente para usuario {}", foundUser.getId());
             return Optional.empty();
         }
 
         if (!passwordMatches(foundUser, password)) {
             registerFailedLogin(foundUser);
+            logger.warn("Login fallido: credenciales invalidas para usuario {}", foundUser.getId());
             return Optional.empty();
         }
 
         resetFailedLogins(foundUser);
+        logger.info("Login correcto para usuario {}", foundUser.getId());
         return Optional.of(foundUser);
     }
 
     public User startSession(User user) {
-        user.setToken(UUID.randomUUID().toString());
-        return this.userDao.save(user);
+        String plainToken = UUID.randomUUID().toString();
+        user.setToken(hashSessionToken(plainToken));
+        user.setSessionTokenExpiresAt(Instant.now().plusSeconds(sessionMaxAgeSeconds));
+        User saved = this.userDao.save(user);
+        saved.setSessionToken(plainToken);
+        logger.info("Sesion iniciada para usuario {} caducaEnSegundos={}", saved.getId(), sessionMaxAgeSeconds);
+        return saved;
     }
 
     public String beginTwoFactorLogin(User user) {
         String challengeToken = UUID.randomUUID().toString();
-        pendingTwoFactorLogins.put(
-            challengeToken,
-            new PendingTwoFactorLogin(user.getId(), Instant.now().plus(TWO_FACTOR_CHALLENGE_TTL))
-        );
+        pendingTwoFactorLogins.put(challengeToken, new PendingTwoFactorLogin(user.getId(), Instant.now().plus(TWO_FACTOR_CHALLENGE_TTL)));
+        logger.info("Reto 2FA iniciado para usuario {}", user.getId());
         return challengeToken;
     }
 
     public User completeTwoFactorLogin(String challengeToken, String code) {
         PendingTwoFactorLogin challenge = pendingTwoFactorLogins.remove(challengeToken);
         if (challenge == null || challenge.expiresAt().isBefore(Instant.now())) {
+            logger.warn("Reto 2FA caducado o inexistente");
             throw new IllegalArgumentException("El reto 2FA ha caducado.");
         }
 
@@ -113,9 +131,11 @@ public class UserService {
             .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado."));
 
         if (!user.isTwoFactorEnabled() || !verifyTotp(user, code)) {
+            logger.warn("Codigo 2FA invalido para usuario {}", user.getId());
             throw new IllegalArgumentException("Codigo 2FA invalido.");
         }
 
+        logger.info("2FA verificado correctamente para usuario {}", user.getId());
         return startSession(user);
     }
 
@@ -126,6 +146,7 @@ public class UserService {
         user.setTwoFactorSecret(key.getKey());
         user.setTwoFactorEnabled(false);
         this.userDao.save(user);
+        logger.info("Configuracion 2FA iniciada para usuario {}", user.getId());
 
         String otpAuthUrl = buildOtpAuthUrl(user.getEmail(), key.getKey());
         String qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data="
@@ -141,6 +162,7 @@ public class UserService {
         }
 
         user.setTwoFactorEnabled(true);
+        logger.info("2FA activado para usuario {}", user.getId());
         return toProfileResponse(this.userDao.save(user));
     }
 
@@ -148,6 +170,7 @@ public class UserService {
         User user = authenticatedUser(token);
         user.setTwoFactorEnabled(false);
         user.setTwoFactorSecret(null);
+        logger.info("2FA desactivado para usuario {}", user.getId());
         return toProfileResponse(this.userDao.save(user));
     }
 
@@ -156,9 +179,11 @@ public class UserService {
             return;
         }
 
-        this.userDao.findByToken(token).ifPresent(user -> {
+        findBySessionToken(token).ifPresent(user -> {
             user.setToken(null);
+            user.setSessionTokenExpiresAt(null);
             this.userDao.save(user);
+            logger.info("Logout completado para usuario {}", user.getId());
         });
     }
 
@@ -167,6 +192,8 @@ public class UserService {
         User user = authenticatedUser(token);
         passwordResetTokenDao.deleteByUserId(user.getId());
         user.setToken(null);
+        user.setSessionTokenExpiresAt(null);
+        logger.warn("Cuenta cancelada para usuario {}", user.getId());
         this.userDao.delete(user);
     }
 
@@ -174,7 +201,14 @@ public class UserService {
         if (token == null || token.isBlank()) {
             return Optional.empty();
         }
-        return this.userDao.findByToken(token);
+        String normalizedToken = token.trim();
+        Optional<User> hashedMatch = this.userDao.findByToken(hashSessionToken(normalizedToken));
+        if (hashedMatch.isPresent()) {
+            return usableSession(hashedMatch.get());
+        }
+
+        return this.userDao.findByToken(normalizedToken)
+            .flatMap(user -> usableSession(user).map(validUser -> migratePlainSessionToken(validUser, normalizedToken)));
     }
 
     public Optional<UserResponse> profileBySessionToken(String token) {
@@ -209,7 +243,7 @@ public class UserService {
     }
 
     public String checkToken(String token) {
-        return this.userDao.findByToken(token)
+        return findBySessionToken(token)
             .map(User::getEmail)
             .orElse(null);
     }
@@ -258,7 +292,9 @@ public class UserService {
         newUser.setConfirmed(true);
 
         try {
-            return this.userDao.save(newUser);
+            User saved = this.userDao.save(newUser);
+            logger.info("Cuenta registrada para usuario {}", saved.getId());
+            return saved;
         } catch (DataIntegrityViolationException e) {
             throw new IllegalArgumentException("Ya existe una cuenta con esos datos.");
         }
@@ -288,6 +324,37 @@ public class UserService {
     private User authenticatedUser(String token) {
         return findBySessionToken(token)
             .orElseThrow(() -> new IllegalArgumentException("Sesion no valida."));
+    }
+
+    private User migratePlainSessionToken(User user, String plainToken) {
+        user.setToken(hashSessionToken(plainToken));
+        user.setSessionTokenExpiresAt(Instant.now().plusSeconds(sessionMaxAgeSeconds));
+        User saved = this.userDao.save(user);
+        saved.setSessionToken(plainToken);
+        logger.info("Sesion antigua migrada a hash para usuario {}", saved.getId());
+        return saved;
+    }
+
+    private Optional<User> usableSession(User user) {
+        Instant expiresAt = user.getSessionTokenExpiresAt();
+        if (expiresAt == null || !expiresAt.isAfter(Instant.now())) {
+            user.setToken(null);
+            user.setSessionTokenExpiresAt(null);
+            this.userDao.save(user);
+            logger.warn("Sesion caducada o sin expiracion invalidada para usuario {}", user.getId());
+            return Optional.empty();
+        }
+        return Optional.of(user);
+    }
+
+    private String hashSessionToken(String token) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(token.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 no disponible", e);
+        }
     }
 
     private void validateRequiredFields(RegisterUserRequest request) {
@@ -405,6 +472,8 @@ public class UserService {
         if (attempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
             user.setAccountLockedUntil(Instant.now().plus(ACCOUNT_LOCK_DURATION));
             user.setToken(null);
+            user.setSessionTokenExpiresAt(null);
+            logger.warn("Cuenta bloqueada temporalmente por intentos fallidos para usuario {}", user.getId());
         }
         this.userDao.save(user);
     }

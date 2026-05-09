@@ -9,6 +9,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import jakarta.persistence.UniqueConstraint;
 
 @Entity
@@ -47,6 +48,9 @@ public class User {
     private boolean confirmed = false;
 
     private String token;
+    private Instant sessionTokenExpiresAt;
+    @Transient
+    private String sessionToken;
     private String confirmationToken;
     @Column(length = 64)
     private String twoFactorSecret;
@@ -146,11 +150,31 @@ public class User {
     }
 
     public String getToken() {
-        return token;
+        return sessionToken != null ? sessionToken : token;
     }
 
     public void setToken(String token) {
         this.token = token;
+    }
+
+    public String getStoredTokenHash() {
+        return token;
+    }
+
+    public Instant getSessionTokenExpiresAt() {
+        return sessionTokenExpiresAt;
+    }
+
+    public void setSessionTokenExpiresAt(Instant sessionTokenExpiresAt) {
+        this.sessionTokenExpiresAt = sessionTokenExpiresAt;
+    }
+
+    public String getSessionToken() {
+        return sessionToken;
+    }
+
+    public void setSessionToken(String sessionToken) {
+        this.sessionToken = sessionToken;
     }
 
     public String getConfirmationToken() {
