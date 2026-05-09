@@ -10,9 +10,11 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -98,11 +100,12 @@ public class UserControler {
     }
 
     @GetMapping("/me")
-    public UserResponse me(@CookieValue(name = SESSION_COOKIE, required = false) String token) {
+    public ResponseEntity<UserResponse> me(@CookieValue(name = SESSION_COOKIE, required = false) String token) {
         return service.profileBySessionToken(token)
-            .orElseThrow(() -> {
+            .map(ResponseEntity::ok)
+            .orElseGet(() -> {
                 logger.warn("Acceso denegado a /users/me por sesion ausente o invalida");
-                return new ResponseStatusException(HttpStatus.UNAUTHORIZED, AUTH_GENERIC_ERROR);
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
             });
     }
 
@@ -166,6 +169,24 @@ public class UserControler {
         return ResponseEntity.noContent()
             .header(HttpHeaders.SET_COOKIE, clearSessionCookie().toString())
             .build();
+    }
+
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> cancelAccount(@CookieValue(name = SESSION_COOKIE, required = false) String token) {
+        try {
+            service.cancelAccount(token);
+            return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, clearSessionCookie().toString())
+                .build();
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> rejectAccountDeletionById(@PathVariable String id) {
+        logger.warn("Intento de cancelar cuenta por id bloqueado: {}", id);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 
     @GetMapping("/confirm")

@@ -34,14 +34,21 @@ BEGIN
 END
 GO
 
-DENY DELETE TO [usuarios_app];
 DENY ALTER TO [usuarios_app];
 DENY CONTROL TO [usuarios_app];
 DENY TAKE OWNERSHIP TO [usuarios_app];
 GO
 
-GRANT SELECT, INSERT, UPDATE ON OBJECT::dbo.users TO [usuarios_app];
-GRANT SELECT, INSERT, UPDATE ON OBJECT::dbo.password_reset_tokens TO [usuarios_app];
+/*
+  La cancelacion de cuenta borra fisicamente el usuario y sus tokens.
+  Si este script ya se ejecuto antes con DENY DELETE, hay que retirarlo porque
+  en SQL Server un DENY a nivel de base prevalece sobre los GRANT por tabla.
+*/
+REVOKE DELETE TO [usuarios_app];
+GO
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON OBJECT::dbo.users TO [usuarios_app];
+GRANT SELECT, INSERT, UPDATE, DELETE ON OBJECT::dbo.password_reset_tokens TO [usuarios_app];
 GO
 
 /*
