@@ -98,6 +98,23 @@ class PasswordResetServiceTests {
     }
 
     @Test
+    void newResetRequestInvalidatesPreviousTokensForSameUser() {
+        User user = createUser("latest.reset@example.com", "latestreset");
+        String previousToken = createToken(user, Instant.now().plusSeconds(900), false);
+
+        assertTrue(passwordResetService.validateToken(previousToken));
+
+        passwordResetService.requestReset(request("latest.reset@example.com"), "127.0.0.1", "test");
+
+        assertFalse(passwordResetService.validateToken(previousToken));
+        long activeTokens = tokenDao.findAll().stream()
+            .filter(token -> token.getUserId().equals(user.getId()))
+            .filter(token -> !token.isUsado())
+            .count();
+        assertEquals(1, activeTokens);
+    }
+
+    @Test
     void expiredTokenCannotChangePassword() {
         User user = createUser("expired@example.com", "expireduser");
         String token = createToken(user, Instant.now().minusSeconds(60), false);
@@ -157,6 +174,36 @@ class PasswordResetServiceTests {
         assertEquals("Login exitoso", userService.login("valid.reset@example.com", "Cambio#Fuerte81!"));
         assertEquals(null, userService.login("valid.reset@example.com", "Inicio#Fuerte79!"));
         assertFalse(passwordResetService.validateToken(token));
+    }
+
+    @Test
+    void tokenCannotBeConfirmedForDifferentEmail() {
+        User owner = createUser("owner.reset@example.com", "ownerreset");
+        User other = createUser("other.reset@example.com", "otherreset");
+        String token = createToken(owner, Instant.now().plusSeconds(900), false);
+        String otherOldHash = other.getPassword();
+
+        PasswordResetConfirmRequest request = confirm(token, "Cambio#Fuerte81!", "Cambio#Fuerte81!");
+        request.setEmail("other.reset@example.com");
+
+        assertThrows(ResponseStatusException.class, () -> passwordResetService.confirmReset(request));
+        assertEquals(otherOldHash, userDao.findByEmail("other.reset@example.com").orElseThrow().getPassword());
+        assertTrue(passwordResetService.validateToken(token));
+    }
+
+    @Test
+    void cancelAccountDeletesUserAndPasswordResetTokens() {
+        User user = userService.startSession(createUser("cancel@example.com", "canceluser"));
+        String resetToken = createToken(user, Instant.now().plusSeconds(900), false);
+
+        assertTrue(passwordResetService.validateToken(resetToken));
+
+        userService.cancelAccount(user.getToken());
+
+        assertTrue(userDao.findByEmail("cancel@example.com").isEmpty());
+        assertEquals(null, userService.login("cancel@example.com", "Inicio#Fuerte79!"));
+        assertFalse(passwordResetService.validateToken(resetToken));
+        assertTrue(tokenDao.findAll().stream().noneMatch(token -> token.getUserId().equals(user.getId())));
     }
 
     @Test

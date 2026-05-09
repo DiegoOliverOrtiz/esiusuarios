@@ -91,6 +91,8 @@ public class PasswordResetService {
             return;
         }
 
+        tokenDao.markActiveTokensAsUsed(user.get().getId(), Instant.now());
+
         String plainToken = generateToken();
         PasswordResetToken resetToken = new PasswordResetToken();
         resetToken.setUserId(user.get().getId());
@@ -119,6 +121,10 @@ public class PasswordResetService {
 
         User user = userDao.findById(resetToken.getUserId())
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, INVALID_LINK_MESSAGE));
+
+        if (!confirmEmailMatchesTokenOwner(request, user)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, INVALID_LINK_MESSAGE);
+        }
 
         try {
             passwordPolicy.validateForUser(user, request.getNewPassword(), request.getConfirmPassword());
@@ -212,6 +218,14 @@ public class PasswordResetService {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean confirmEmailMatchesTokenOwner(PasswordResetConfirmRequest request, User user) {
+        String requestedEmail = normalize(request.getEmail());
+        if (requestedEmail.isBlank()) {
+            return true;
+        }
+        return requestedEmail.equals(normalize(user.getEmail()));
     }
 
     private String truncate(String value, int maxLength) {

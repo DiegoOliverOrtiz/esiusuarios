@@ -17,7 +17,9 @@ import com.warrenstrange.googleauth.GoogleAuthenticatorKey;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import esi.edu.usuarios.usuarios.dao.PasswordResetTokenDao;
 import esi.edu.usuarios.usuarios.dao.UserDao;
 import esi.edu.usuarios.usuarios.dto.RegisterUserRequest;
 import esi.edu.usuarios.usuarios.dto.TwoFactorSetupResponse;
@@ -34,14 +36,21 @@ public class UserService {
     private static final String TWO_FACTOR_ISSUER = "ESI Entradas";
 
     private final UserDao userDao;
+    private final PasswordResetTokenDao passwordResetTokenDao;
     private final PasswordPolicy passwordPolicy;
     private final RiskDataEncryptionService riskDataEncryptionService;
     private final BCryptPasswordEncoder passwordEncoder;
     private final GoogleAuthenticator googleAuthenticator;
     private final Map<String, PendingTwoFactorLogin> pendingTwoFactorLogins = new ConcurrentHashMap<>();
 
-    public UserService(UserDao userDao, PasswordPolicy passwordPolicy, RiskDataEncryptionService riskDataEncryptionService) {
+    public UserService(
+        UserDao userDao,
+        PasswordResetTokenDao passwordResetTokenDao,
+        PasswordPolicy passwordPolicy,
+        RiskDataEncryptionService riskDataEncryptionService
+    ) {
         this.userDao = userDao;
+        this.passwordResetTokenDao = passwordResetTokenDao;
         this.passwordPolicy = passwordPolicy;
         this.riskDataEncryptionService = riskDataEncryptionService;
         this.passwordEncoder = new BCryptPasswordEncoder(12);
@@ -151,6 +160,14 @@ public class UserService {
             user.setToken(null);
             this.userDao.save(user);
         });
+    }
+
+    @Transactional
+    public void cancelAccount(String token) {
+        User user = authenticatedUser(token);
+        passwordResetTokenDao.deleteByUserId(user.getId());
+        user.setToken(null);
+        this.userDao.delete(user);
     }
 
     public Optional<User> findBySessionToken(String token) {
