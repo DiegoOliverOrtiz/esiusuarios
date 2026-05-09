@@ -189,6 +189,18 @@ public class UserControler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 
+    @GetMapping("/{id}")
+    public ResponseEntity<Void> rejectAccountReadById(@PathVariable String id) {
+        logger.warn("Intento de leer cuenta por id bloqueado: {}", id);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<Void> rejectAccountUpdateById(@PathVariable String id) {
+        logger.warn("Intento de modificar cuenta por id bloqueado: {}", id);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+    }
+
     @GetMapping("/confirm")
     public String confirm(@RequestParam String token) {
         try {

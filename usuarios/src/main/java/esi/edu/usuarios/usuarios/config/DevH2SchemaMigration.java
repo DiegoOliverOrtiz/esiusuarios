@@ -25,6 +25,7 @@ public class DevH2SchemaMigration {
 
         addColumn("users", "account_locked_until", "timestamp with time zone");
         addColumn("users", "failed_login_attempts", "integer not null default 0");
+        addColumn("users", "session_token_expires_at", "timestamp with time zone");
         addColumn("users", "two_factor_secret", "varchar(64)");
         addColumn("users", "two_factor_enabled", "boolean not null default false");
         addColumn("users", "dni_nie_encrypted", "varchar(512)");

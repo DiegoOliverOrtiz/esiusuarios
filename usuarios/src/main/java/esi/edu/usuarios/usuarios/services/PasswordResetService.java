@@ -104,7 +104,7 @@ public class PasswordResetService {
         tokenDao.save(resetToken);
 
         sendRecoveryEmail(user.get(), plainToken);
-        logger.info("Token de recuperacion generado con id {}", resetToken.getId());
+        logger.info("Registro de recuperacion generado con id {}", resetToken.getId());
     }
 
     @Transactional(readOnly = true)
@@ -137,6 +137,8 @@ public class PasswordResetService {
         }
 
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        user.setToken(null);
+        user.setSessionTokenExpiresAt(null);
         userDao.save(user);
 
         Instant usedAt = Instant.now();
@@ -154,7 +156,7 @@ public class PasswordResetService {
     public void invalidateExpiredTokens() {
         int updated = tokenDao.markExpiredTokensAsUsed(Instant.now());
         if (updated > 0) {
-            logger.info("Tokens de recuperacion caducados invalidados: {}", updated);
+            logger.info("Registros de recuperacion caducados invalidados: {}", updated);
         }
     }
 

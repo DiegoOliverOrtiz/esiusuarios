@@ -177,6 +177,23 @@ class PasswordResetServiceTests {
     }
 
     @Test
+    void sessionTokenExpiresServerSideEvenIfCookieIsReused() {
+        User user = userService.startSession(createUser("session.expired@example.com", "sessionexpired"));
+        String sessionToken = user.getToken();
+
+        assertEquals("session.expired@example.com", userService.checkToken(sessionToken));
+
+        User persisted = userDao.findByEmail("session.expired@example.com").orElseThrow();
+        persisted.setSessionTokenExpiresAt(Instant.now().minusSeconds(1));
+        userDao.save(persisted);
+
+        assertEquals(null, userService.checkToken(sessionToken));
+        User updated = userDao.findByEmail("session.expired@example.com").orElseThrow();
+        assertEquals(null, updated.getStoredTokenHash());
+        assertEquals(null, updated.getSessionTokenExpiresAt());
+    }
+
+    @Test
     void tokenCannotBeConfirmedForDifferentEmail() {
         User owner = createUser("owner.reset@example.com", "ownerreset");
         User other = createUser("other.reset@example.com", "otherreset");
@@ -189,6 +206,19 @@ class PasswordResetServiceTests {
         assertThrows(ResponseStatusException.class, () -> passwordResetService.confirmReset(request));
         assertEquals(otherOldHash, userDao.findByEmail("other.reset@example.com").orElseThrow().getPassword());
         assertTrue(passwordResetService.validateToken(token));
+    }
+
+    @Test
+    void passwordResetInvalidatesActiveSession() {
+        User user = userService.startSession(createUser("reset.session@example.com", "resetsession"));
+        String sessionToken = user.getToken();
+        String resetToken = createToken(user, Instant.now().plusSeconds(900), false);
+
+        assertEquals("reset.session@example.com", userService.checkToken(sessionToken));
+
+        passwordResetService.confirmReset(confirm(resetToken, "Cambio#Fuerte81!", "Cambio#Fuerte81!"));
+
+        assertEquals(null, userService.checkToken(sessionToken));
     }
 
     @Test
