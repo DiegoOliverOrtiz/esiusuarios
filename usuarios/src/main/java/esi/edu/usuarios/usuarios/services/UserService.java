@@ -26,17 +26,20 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import esi.edu.usuarios.usuarios.dao.PasswordResetTokenDao;
+import esi.edu.usuarios.usuarios.dao.PasswordHistoryDao;
 import esi.edu.usuarios.usuarios.dao.UserDao;
 import esi.edu.usuarios.usuarios.dto.RegisterUserRequest;
 import esi.edu.usuarios.usuarios.dto.TwoFactorSetupResponse;
 import esi.edu.usuarios.usuarios.dto.UpdateProfileRequest;
 import esi.edu.usuarios.usuarios.dto.UserResponse;
+import esi.edu.usuarios.usuarios.model.PasswordHistory;
 import esi.edu.usuarios.usuarios.model.User;
 
 @Service
 public class UserService {
     private static final Logger logger = LoggerFactory.getLogger(UserService.class);
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+    private static final Pattern HUMAN_NAME_PATTERN = Pattern.compile("^[\\p{L}\\p{M}]+(?:[ .'-][\\p{L}\\p{M}]+)*$");
     private static final int MAX_FAILED_LOGIN_ATTEMPTS = 5;
     private static final Duration ACCOUNT_LOCK_DURATION = Duration.ofMinutes(15);
     private static final Duration TWO_FACTOR_CHALLENGE_TTL = Duration.ofMinutes(5);
@@ -44,6 +47,7 @@ public class UserService {
 
     private final UserDao userDao;
     private final PasswordResetTokenDao passwordResetTokenDao;
+    private final PasswordHistoryDao passwordHistoryDao;
     private final PasswordPolicy passwordPolicy;
     private final RiskDataEncryptionService riskDataEncryptionService;
     private final BCryptPasswordEncoder passwordEncoder;
@@ -56,11 +60,13 @@ public class UserService {
     public UserService(
         UserDao userDao,
         PasswordResetTokenDao passwordResetTokenDao,
+        PasswordHistoryDao passwordHistoryDao,
         PasswordPolicy passwordPolicy,
         RiskDataEncryptionService riskDataEncryptionService
     ) {
         this.userDao = userDao;
         this.passwordResetTokenDao = passwordResetTokenDao;
+        this.passwordHistoryDao = passwordHistoryDao;
         this.passwordPolicy = passwordPolicy;
         this.riskDataEncryptionService = riskDataEncryptionService;
         this.passwordEncoder = new BCryptPasswordEncoder(12);
@@ -191,6 +197,7 @@ public class UserService {
     public void cancelAccount(String token) {
         User user = authenticatedUser(token);
         passwordResetTokenDao.deleteByUserId(user.getId());
+        passwordHistoryDao.deleteByUserId(user.getId());
         user.setToken(null);
         user.setSessionTokenExpiresAt(null);
         logger.warn("Cuenta cancelada para usuario {}", user.getId());
@@ -219,6 +226,7 @@ public class UserService {
         User user = authenticatedUser(token);
 
         normalizeProfileRequest(request);
+        validateProfileFields(request);
 
         if (!EMAIL_PATTERN.matcher(request.getEmail()).matches()) {
             throw new IllegalArgumentException("El correo no tiene un formato valido.");
@@ -262,6 +270,7 @@ public class UserService {
     public User register(RegisterUserRequest request) {
         normalizeRequest(request);
         validateRequiredFields(request);
+        validatePersonalNames(request.getNombre(), request.getApellidos());
 
         if (!EMAIL_PATTERN.matcher(request.getEmail()).matches()) {
             throw new IllegalArgumentException("El correo no tiene un formato valido.");
@@ -293,6 +302,7 @@ public class UserService {
 
         try {
             User saved = this.userDao.save(newUser);
+            passwordHistoryDao.save(new PasswordHistory(saved.getId(), saved.getPassword(), Instant.now()));
             logger.info("Cuenta registrada para usuario {}", saved.getId());
             return saved;
         } catch (DataIntegrityViolationException e) {
@@ -365,6 +375,23 @@ public class UserService {
             || isBlank(request.getConfirmPassword())) {
             throw new IllegalArgumentException("Faltan campos obligatorios.");
         }
+    }
+
+    private void validateProfileFields(UpdateProfileRequest request) {
+        if (isBlank(request.getNombre()) || isBlank(request.getApellidos()) || isBlank(request.getEmail())) {
+            throw new IllegalArgumentException("Faltan campos obligatorios.");
+        }
+        validatePersonalNames(request.getNombre(), request.getApellidos());
+    }
+
+    private void validatePersonalNames(String nombre, String apellidos) {
+        if (!isValidHumanName(nombre) || !isValidHumanName(apellidos)) {
+            throw new IllegalArgumentException("Nombre o apellidos no validos.");
+        }
+    }
+
+    private boolean isValidHumanName(String value) {
+        return value != null && HUMAN_NAME_PATTERN.matcher(value).matches();
     }
 
     private String normalize(String value) {
