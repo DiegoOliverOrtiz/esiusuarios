@@ -12,12 +12,12 @@ import jakarta.validation.constraints.Size;
 public class RegisterUserRequest {
     @NotBlank
     @Size(max = 80)
-    @Pattern(regexp = "^[\\p{L}\\p{M} .'-]+$")
+    @Pattern(regexp = "^[\\p{L}\\p{M}]+(?:[ .'-][\\p{L}\\p{M}]+)*$")
     private String nombre;
 
     @NotBlank
     @Size(max = 120)
-    @Pattern(regexp = "^[\\p{L}\\p{M} .'-]+$")
+    @Pattern(regexp = "^[\\p{L}\\p{M}]+(?:[ .'-][\\p{L}\\p{M}]+)*$")
     private String apellidos;
 
     @NotBlank

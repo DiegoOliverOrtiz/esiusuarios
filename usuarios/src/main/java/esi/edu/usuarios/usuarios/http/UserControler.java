@@ -53,7 +53,7 @@ public class UserControler {
     @Autowired
     private RateLimiterService rateLimiterService;
 
-    @Value("${app.session.cookie.secure:false}")
+    @Value("${app.session.cookie.secure:true}")
     private boolean secureCookie;
 
     @Value("${app.session.cookie.same-site:Lax}")
