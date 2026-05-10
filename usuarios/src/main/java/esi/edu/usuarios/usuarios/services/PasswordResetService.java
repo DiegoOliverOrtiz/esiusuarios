@@ -17,8 +17,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -32,9 +32,9 @@ import esi.edu.usuarios.usuarios.model.User;
 
 @Service
 public class PasswordResetService {
-    public static final String GENERIC_REQUEST_MESSAGE = "Si el correo existe, enviaremos instrucciones para restablecer la contrasena.";
-    private static final String INVALID_LINK_MESSAGE = "El enlace no es valido o ha caducado.";
-    private static final String PASSWORD_POLICY_MESSAGE = "No se pudo establecer la contrasena. Verifique la politica de seguridad.";
+    public static final String GENERIC_REQUEST_MESSAGE = "Si el correo existe, enviaremos instrucciones para restablecer la contraseña.";
+    private static final String INVALID_LINK_MESSAGE = "El enlace no es válido o ha caducado.";
+    private static final String PASSWORD_POLICY_MESSAGE = "No se pudo establecer la contraseña. Verifique la política de seguridad.";
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final Duration TOKEN_TTL = Duration.ofMinutes(15);
     private static final int MAX_REQUESTS_PER_WINDOW = 3;
@@ -146,7 +146,7 @@ public class PasswordResetService {
         tokenDao.markActiveTokensAsUsed(user.getId(), usedAt);
 
         sendConfirmationEmail(user);
-        logger.info("Contrasena actualizada correctamente para usuario {}", user.getId());
+        logger.info("Contraseña actualizada correctamente para usuario {}", user.getId());
     }
 
     @Scheduled(fixedDelayString = "${app.password-reset.cleanup-delay-ms:300000}")

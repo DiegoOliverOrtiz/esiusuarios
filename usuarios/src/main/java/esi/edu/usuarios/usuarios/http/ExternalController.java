@@ -11,9 +11,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-import esi.edu.usuarios.usuarios.dto.TokenCheckRequest;
-import esi.edu.usuarios.usuarios.dto.TicketEmailRequest;
 import esi.edu.usuarios.usuarios.dto.MessageResponse;
+import esi.edu.usuarios.usuarios.dto.TicketEmailRequest;
+import esi.edu.usuarios.usuarios.dto.TokenCheckRequest;
 import esi.edu.usuarios.usuarios.services.EmailServiceBrevo;
 import esi.edu.usuarios.usuarios.services.UserService;
 import jakarta.validation.Valid;
@@ -40,7 +40,7 @@ public class ExternalController {
         validateInternalSecret(internalSecret);
         String userName = this.service.checkToken(request.getToken());
         if(userName == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token invalido");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token inválido");
         }
         return userName;
     }

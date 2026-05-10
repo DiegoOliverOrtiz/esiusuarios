@@ -21,7 +21,7 @@ public class PasswordPolicy {
     private static final Pattern SYMBOL = Pattern.compile("[^A-Za-z0-9]");
     private static final Pattern CONTROL_CHARS = Pattern.compile("\\p{Cntrl}");
     private static final Pattern SIMPLE_REPETITION = Pattern.compile("(.)\\1{7,}");
-    private static final String GENERIC_POLICY_ERROR = "La contrasena no cumple la politica de seguridad.";
+    private static final String GENERIC_POLICY_ERROR = "La contraseña no cumple la política de seguridad.";
 
     private final CommonPasswordService commonPasswordService;
 

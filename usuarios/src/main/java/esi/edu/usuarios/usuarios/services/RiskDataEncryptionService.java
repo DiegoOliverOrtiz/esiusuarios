@@ -64,7 +64,7 @@ public class RiskDataEncryptionService {
         try {
             byte[] input = Base64.getUrlDecoder().decode(encryptedText);
             if (input.length <= IV_BYTES) {
-                throw new IllegalArgumentException("Dato cifrado no valido.");
+                throw new IllegalArgumentException("Dato cifrado no válido.");
             }
 
             byte[] iv = Arrays.copyOfRange(input, 0, IV_BYTES);

@@ -1,9 +1,9 @@
 package esi.edu.usuarios.usuarios.services;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -11,13 +11,13 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
-import com.warrenstrange.googleauth.GoogleAuthenticator;
-import com.warrenstrange.googleauth.GoogleAuthenticatorKey;
-
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.warrenstrange.googleauth.GoogleAuthenticator;
+import com.warrenstrange.googleauth.GoogleAuthenticatorKey;
 
 import esi.edu.usuarios.usuarios.dao.PasswordResetTokenDao;
 import esi.edu.usuarios.usuarios.dao.UserDao;
@@ -113,7 +113,7 @@ public class UserService {
             .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado."));
 
         if (!user.isTwoFactorEnabled() || !verifyTotp(user, code)) {
-            throw new IllegalArgumentException("Codigo 2FA invalido.");
+            throw new IllegalArgumentException("Código 2FA inválido.");
         }
 
         return startSession(user);
@@ -137,7 +137,7 @@ public class UserService {
     public UserResponse verifyAndEnableTwoFactor(String token, String code) {
         User user = authenticatedUser(token);
         if (!verifyTotp(user, code)) {
-            throw new IllegalArgumentException("Codigo 2FA invalido.");
+            throw new IllegalArgumentException("Código 2FA inválido.");
         }
 
         user.setTwoFactorEnabled(true);
@@ -187,7 +187,7 @@ public class UserService {
         normalizeProfileRequest(request);
 
         if (!EMAIL_PATTERN.matcher(request.getEmail()).matches()) {
-            throw new IllegalArgumentException("El correo no tiene un formato valido.");
+            throw new IllegalArgumentException("El correo no tiene un formato válido.");
         }
         Optional<User> existingEmail = findByCanonicalEmail(request.getEmail());
         if (existingEmail.isPresent() && !existingEmail.get().getId().equals(user.getId())) {
@@ -216,7 +216,7 @@ public class UserService {
 
     public String confirmRegistration(String token) {
         User user = this.userDao.findByConfirmationToken(token)
-            .orElseThrow(() -> new IllegalArgumentException("Token de confirmacion no valido."));
+            .orElseThrow(() -> new IllegalArgumentException("Token de confirmacion no válido."));
 
         user.setConfirmed(true);
         user.setConfirmationToken(null);
@@ -230,7 +230,7 @@ public class UserService {
         validateRequiredFields(request);
 
         if (!EMAIL_PATTERN.matcher(request.getEmail()).matches()) {
-            throw new IllegalArgumentException("El correo no tiene un formato valido.");
+            throw new IllegalArgumentException("El correo no tiene un formato válido.");
         }
         if (findByCanonicalEmail(request.getEmail()).isPresent()) {
             throw new IllegalArgumentException("Ya existe una cuenta con ese correo.");
