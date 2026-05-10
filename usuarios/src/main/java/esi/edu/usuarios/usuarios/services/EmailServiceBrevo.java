@@ -73,14 +73,14 @@ public class EmailServiceBrevo extends EmailService {
             .replace("{{RESET_LINK}}", resetLink)
             .replace("{{BRAND}}", "ESI Entradas");
 
-        sendHttpEmail(email, "Solicitud de cambio de contrasena en ESI Entradas", html);
+        sendHttpEmail(email, "Solicitud de cambio de contraseña en ESI Entradas", html);
     }
 
     public void sendPasswordChangedEmail(String email) {
         String html = loadEmailTemplate("email-templates/password-changed.html")
             .replace("{{BRAND}}", "ESI Entradas");
 
-        sendHttpEmail(email, "Contrasena actualizada en ESI Entradas", html);
+        sendHttpEmail(email, "Contraseña actualizada en ESI Entradas", html);
     }
 
     public void sendTicketEmail(String email, String subject, String html) {

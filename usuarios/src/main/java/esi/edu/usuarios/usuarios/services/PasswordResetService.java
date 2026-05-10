@@ -35,9 +35,9 @@ import esi.edu.usuarios.usuarios.model.User;
 
 @Service
 public class PasswordResetService {
-    public static final String GENERIC_REQUEST_MESSAGE = "Si el correo existe, enviaremos instrucciones para restablecer la contrasena.";
+    public static final String GENERIC_REQUEST_MESSAGE = "Si el correo existe, enviaremos instrucciones para restablecer la contraseña.";
     private static final String INVALID_LINK_MESSAGE = "El enlace no es valido o ha caducado.";
-    private static final String PASSWORD_POLICY_MESSAGE = "No se pudo establecer la contrasena. Verifique la politica de seguridad.";
+    private static final String PASSWORD_POLICY_MESSAGE = "No se pudo establecer la contraseña. Verifique la politica de seguridad.";
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final Duration TOKEN_TTL = Duration.ofMinutes(15);
     private static final int MAX_REQUESTS_PER_WINDOW = 3;

@@ -65,7 +65,7 @@ public class PasswordResetController {
             Duration.ofMinutes(15)
         );
         passwordResetService.confirmReset(request);
-        return new MessageResponse("Contrasena actualizada correctamente");
+        return new MessageResponse("Contraseña actualizada correctamente");
     }
 
     @ExceptionHandler(ResponseStatusException.class)
