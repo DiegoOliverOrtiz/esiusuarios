@@ -7,9 +7,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.server.ResponseStatusException;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -40,6 +42,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleBadRequest(Exception error, HttpServletRequest request) {
         logger.warn("Solicitud invalida en {} {}", request.getMethod(), request.getRequestURI());
         return build(HttpStatus.BAD_REQUEST, BAD_REQUEST, request);
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethodNotAllowed(Exception error, HttpServletRequest request) {
+        logger.warn("Metodo no permitido en {} {}", request.getMethod(), request.getRequestURI());
+        return build(HttpStatus.METHOD_NOT_ALLOWED, "Metodo no permitido.", request);
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleNotFound(Exception error, HttpServletRequest request) {
+        logger.warn("Recurso no encontrado en {} {}", request.getMethod(), request.getRequestURI());
+        return build(HttpStatus.NOT_FOUND, "Recurso no encontrado.", request);
     }
 
     @ExceptionHandler(Exception.class)

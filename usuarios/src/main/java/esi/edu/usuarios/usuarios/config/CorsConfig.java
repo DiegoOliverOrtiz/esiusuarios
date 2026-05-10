@@ -45,9 +45,15 @@ public class CorsConfig implements WebMvcConfigurer {
     }
 
     private String[] origins() {
-        return Arrays.stream(allowedOrigins.split(","))
+        String[] configuredOrigins = Arrays.stream(allowedOrigins.split(","))
             .map(String::trim)
             .filter(origin -> !origin.isBlank())
+            .filter(origin -> !"*".equals(origin))
+            .filter(origin -> !"null".equalsIgnoreCase(origin))
             .toArray(String[]::new);
+        if (configuredOrigins.length == 0) {
+            return new String[] {"http://localhost:4200", "http://127.0.0.1:4200"};
+        }
+        return configuredOrigins;
     }
 }

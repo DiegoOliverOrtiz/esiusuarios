@@ -53,7 +53,7 @@ public class UserControler {
     @Autowired
     private RateLimiterService rateLimiterService;
 
-    @Value("${app.session.cookie.secure:false}")
+    @Value("${app.session.cookie.secure:true}")
     private boolean secureCookie;
 
     @Value("${app.session.cookie.same-site:Lax}")
@@ -186,6 +186,18 @@ public class UserControler {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> rejectAccountDeletionById(@PathVariable String id) {
         logger.warn("Intento de cancelar cuenta por id bloqueado: {}", id);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<Void> rejectAccountReadById(@PathVariable String id) {
+        logger.warn("Intento de leer cuenta por id bloqueado: {}", id);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<Void> rejectAccountUpdateById(@PathVariable String id) {
+        logger.warn("Intento de modificar cuenta por id bloqueado: {}", id);
         return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 

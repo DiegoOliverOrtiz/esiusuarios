@@ -7,6 +7,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -17,27 +18,30 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import esi.edu.usuarios.usuarios.dao.PasswordHistoryDao;
 import esi.edu.usuarios.usuarios.dao.PasswordResetTokenDao;
 import esi.edu.usuarios.usuarios.dao.UserDao;
 import esi.edu.usuarios.usuarios.dto.PasswordResetConfirmRequest;
 import esi.edu.usuarios.usuarios.dto.PasswordResetRequest;
+import esi.edu.usuarios.usuarios.model.PasswordHistory;
 import esi.edu.usuarios.usuarios.model.PasswordResetToken;
 import esi.edu.usuarios.usuarios.model.User;
 
 @Service
 public class PasswordResetService {
     public static final String GENERIC_REQUEST_MESSAGE = "Si el correo existe, enviaremos instrucciones para restablecer la contraseña.";
-    private static final String INVALID_LINK_MESSAGE = "El enlace no es válido o ha caducado.";
-    private static final String PASSWORD_POLICY_MESSAGE = "No se pudo establecer la contraseña. Verifique la política de seguridad.";
+    private static final String INVALID_LINK_MESSAGE = "El enlace no es valido o ha caducado.";
+    private static final String PASSWORD_POLICY_MESSAGE = "No se pudo establecer la contraseña. Verifique la politica de seguridad.";
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final Duration TOKEN_TTL = Duration.ofMinutes(15);
     private static final int MAX_REQUESTS_PER_WINDOW = 3;
+    private static final int PASSWORD_HISTORY_LIMIT = 5;
     private static final Duration RATE_LIMIT_WINDOW = Duration.ofMinutes(15);
 
     private final Logger logger = LoggerFactory.getLogger(PasswordResetService.class);
@@ -46,6 +50,7 @@ public class PasswordResetService {
 
     private final UserDao userDao;
     private final PasswordResetTokenDao tokenDao;
+    private final PasswordHistoryDao passwordHistoryDao;
     private final PasswordPolicy passwordPolicy;
     private final EmailServiceBrevo emailService;
     private final BCryptPasswordEncoder passwordEncoder;
@@ -54,12 +59,14 @@ public class PasswordResetService {
     public PasswordResetService(
         UserDao userDao,
         PasswordResetTokenDao tokenDao,
+        PasswordHistoryDao passwordHistoryDao,
         PasswordPolicy passwordPolicy,
         EmailServiceBrevo emailService,
         @Value("${app.frontend.url:${app.frontend-base-url:http://localhost:4200}}") String frontendBaseUrl
     ) {
         this.userDao = userDao;
         this.tokenDao = tokenDao;
+        this.passwordHistoryDao = passwordHistoryDao;
         this.passwordPolicy = passwordPolicy;
         this.emailService = emailService;
         this.passwordEncoder = new BCryptPasswordEncoder(12);
@@ -104,7 +111,7 @@ public class PasswordResetService {
         tokenDao.save(resetToken);
 
         sendRecoveryEmail(user.get(), plainToken);
-        logger.info("Token de recuperacion generado con id {}", resetToken.getId());
+        logger.info("Registro de recuperacion generado con id {}", resetToken.getId());
     }
 
     @Transactional(readOnly = true)
@@ -136,8 +143,15 @@ public class PasswordResetService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, PASSWORD_POLICY_MESSAGE);
         }
 
+        if (matchesRecentPassword(user.getId(), request.getNewPassword())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, PASSWORD_POLICY_MESSAGE);
+        }
+
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        user.setToken(null);
+        user.setSessionTokenExpiresAt(null);
         userDao.save(user);
+        recordPasswordHistory(user);
 
         Instant usedAt = Instant.now();
         resetToken.setUsado(true);
@@ -146,7 +160,7 @@ public class PasswordResetService {
         tokenDao.markActiveTokensAsUsed(user.getId(), usedAt);
 
         sendConfirmationEmail(user);
-        logger.info("Contraseña actualizada correctamente para usuario {}", user.getId());
+        logger.info("Contrasena actualizada correctamente para usuario {}", user.getId());
     }
 
     @Scheduled(fixedDelayString = "${app.password-reset.cleanup-delay-ms:300000}")
@@ -154,7 +168,7 @@ public class PasswordResetService {
     public void invalidateExpiredTokens() {
         int updated = tokenDao.markExpiredTokensAsUsed(Instant.now());
         if (updated > 0) {
-            logger.info("Tokens de recuperacion caducados invalidados: {}", updated);
+            logger.info("Registros de recuperacion caducados invalidados: {}", updated);
         }
     }
 
@@ -226,6 +240,23 @@ public class PasswordResetService {
             return true;
         }
         return requestedEmail.equals(normalize(user.getEmail()));
+    }
+
+    private boolean matchesRecentPassword(Long userId, String rawPassword) {
+        return passwordHistoryDao.findTop5ByUserIdOrderByCreatedAtDescIdDesc(userId).stream()
+            .map(PasswordHistory::getPasswordHash)
+            .anyMatch(hash -> passwordEncoder.matches(rawPassword, hash));
+    }
+
+    private void recordPasswordHistory(User user) {
+        passwordHistoryDao.save(new PasswordHistory(user.getId(), user.getPassword(), Instant.now()));
+
+        List<PasswordHistory> entries = passwordHistoryDao.findByUserIdOrderByCreatedAtDescIdDesc(user.getId());
+        if (entries.size() <= PASSWORD_HISTORY_LIMIT) {
+            return;
+        }
+
+        passwordHistoryDao.deleteAll(entries.subList(PASSWORD_HISTORY_LIMIT, entries.size()));
     }
 
     private String truncate(String value, int maxLength) {

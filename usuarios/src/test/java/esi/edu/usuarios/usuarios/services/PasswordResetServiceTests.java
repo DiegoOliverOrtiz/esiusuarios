@@ -22,10 +22,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 import esi.edu.usuarios.usuarios.dao.PasswordResetTokenDao;
+import esi.edu.usuarios.usuarios.dao.PasswordHistoryDao;
 import esi.edu.usuarios.usuarios.dao.UserDao;
 import esi.edu.usuarios.usuarios.dto.PasswordResetConfirmRequest;
 import esi.edu.usuarios.usuarios.dto.PasswordResetRequest;
 import esi.edu.usuarios.usuarios.dto.RegisterUserRequest;
+import esi.edu.usuarios.usuarios.dto.UpdateProfileRequest;
 import esi.edu.usuarios.usuarios.model.PasswordResetToken;
 import esi.edu.usuarios.usuarios.model.User;
 
@@ -54,6 +56,9 @@ class PasswordResetServiceTests {
     @Autowired
     private PasswordResetTokenDao tokenDao;
 
+    @Autowired
+    private PasswordHistoryDao passwordHistoryDao;
+
     @DynamicPropertySource
     static void riskDataEncryptionKey(DynamicPropertyRegistry registry) {
         registry.add("app.risk-data.encryption-key", PasswordResetServiceTests::testKey);
@@ -62,6 +67,7 @@ class PasswordResetServiceTests {
     @BeforeEach
     void setUp() {
         tokenDao.deleteAll();
+        passwordHistoryDao.deleteAll();
         userDao.deleteAll();
     }
 
@@ -177,6 +183,36 @@ class PasswordResetServiceTests {
     }
 
     @Test
+    void resetCannotReuseAnyOfLastFivePasswords() {
+        User user = createUser("history.reset@example.com", "historyreset");
+        String firstToken = createToken(user, Instant.now().plusSeconds(900), false);
+        passwordResetService.confirmReset(confirm(firstToken, "Cambio#Fuerte81!", "Cambio#Fuerte81!"));
+
+        String secondToken = createToken(userDao.findByEmail("history.reset@example.com").orElseThrow(), Instant.now().plusSeconds(900), false);
+
+        assertThrows(ResponseStatusException.class,
+            () -> passwordResetService.confirmReset(confirm(secondToken, "Inicio#Fuerte79!", "Inicio#Fuerte79!")));
+        assertTrue(passwordResetService.validateToken(secondToken));
+    }
+
+    @Test
+    void sessionTokenExpiresServerSideEvenIfCookieIsReused() {
+        User user = userService.startSession(createUser("session.expired@example.com", "sessionexpired"));
+        String sessionToken = user.getToken();
+
+        assertEquals("session.expired@example.com", userService.checkToken(sessionToken));
+
+        User persisted = userDao.findByEmail("session.expired@example.com").orElseThrow();
+        persisted.setSessionTokenExpiresAt(Instant.now().minusSeconds(1));
+        userDao.save(persisted);
+
+        assertEquals(null, userService.checkToken(sessionToken));
+        User updated = userDao.findByEmail("session.expired@example.com").orElseThrow();
+        assertEquals(null, updated.getStoredTokenHash());
+        assertEquals(null, updated.getSessionTokenExpiresAt());
+    }
+
+    @Test
     void tokenCannotBeConfirmedForDifferentEmail() {
         User owner = createUser("owner.reset@example.com", "ownerreset");
         User other = createUser("other.reset@example.com", "otherreset");
@@ -192,6 +228,19 @@ class PasswordResetServiceTests {
     }
 
     @Test
+    void passwordResetInvalidatesActiveSession() {
+        User user = userService.startSession(createUser("reset.session@example.com", "resetsession"));
+        String sessionToken = user.getToken();
+        String resetToken = createToken(user, Instant.now().plusSeconds(900), false);
+
+        assertEquals("reset.session@example.com", userService.checkToken(sessionToken));
+
+        passwordResetService.confirmReset(confirm(resetToken, "Cambio#Fuerte81!", "Cambio#Fuerte81!"));
+
+        assertEquals(null, userService.checkToken(sessionToken));
+    }
+
+    @Test
     void cancelAccountDeletesUserAndPasswordResetTokens() {
         User user = userService.startSession(createUser("cancel@example.com", "canceluser"));
         String resetToken = createToken(user, Instant.now().plusSeconds(900), false);
@@ -204,6 +253,7 @@ class PasswordResetServiceTests {
         assertEquals(null, userService.login("cancel@example.com", "Inicio#Fuerte79!"));
         assertFalse(passwordResetService.validateToken(resetToken));
         assertTrue(tokenDao.findAll().stream().noneMatch(token -> token.getUserId().equals(user.getId())));
+        assertTrue(passwordHistoryDao.findByUserIdOrderByCreatedAtDescIdDesc(user.getId()).isEmpty());
     }
 
     @Test
@@ -263,6 +313,41 @@ class PasswordResetServiceTests {
         assertTrue(saved.getDireccionEncrypted() != null);
     }
 
+    @Test
+    void registerRejectsNamesWithNumbersSymbolsOrEmoji() {
+        RegisterUserRequest nameWithNumber = registerRequest("bad.name@example.com", "badname");
+        nameWithNumber.setNombre("Laura123");
+        assertThrows(IllegalArgumentException.class, () -> userService.register(nameWithNumber));
+
+        RegisterUserRequest surnameWithSymbol = registerRequest("bad.surname@example.com", "badsurname");
+        surnameWithSymbol.setApellidos("Martinez @ Sol");
+        assertThrows(IllegalArgumentException.class, () -> userService.register(surnameWithSymbol));
+
+        RegisterUserRequest nameWithEmoji = registerRequest("emoji.name@example.com", "emojiname");
+        nameWithEmoji.setNombre("Laura🙂");
+        assertThrows(IllegalArgumentException.class, () -> userService.register(nameWithEmoji));
+    }
+
+    @Test
+    void updateProfileRejectsNamesWithInvalidCharacters() {
+        User user = userService.startSession(createUser("profile.name@example.com", "profilename"));
+        UpdateProfileRequest request = updateProfileRequest("Ana", "Lopez99", "profile.name@example.com");
+
+        assertThrows(IllegalArgumentException.class, () -> userService.updateProfile(user.getToken(), request));
+    }
+
+    @Test
+    void registerAcceptsAccentsSpacesHyphensAndApostrophesInNames() {
+        RegisterUserRequest request = registerRequest("valid.name@example.com", "validname");
+        request.setNombre("Maria-Jose");
+        request.setApellidos("O'Neill de la Cruz");
+
+        User saved = userService.register(request);
+
+        assertEquals("Maria-Jose", saved.getNombre());
+        assertEquals("O'Neill de la Cruz", saved.getApellidos());
+    }
+
     private User createUser(String email, String username) {
         return userService.register(registerRequest(email, username));
     }
@@ -289,6 +374,15 @@ class PasswordResetServiceTests {
         request.setToken(token);
         request.setNewPassword(password);
         request.setConfirmPassword(confirmPassword);
+        return request;
+    }
+
+    private UpdateProfileRequest updateProfileRequest(String nombre, String apellidos, String email) {
+        UpdateProfileRequest request = new UpdateProfileRequest();
+        request.setNombre(nombre);
+        request.setApellidos(apellidos);
+        request.setEmail(email);
+        request.setUsername("profilealias");
         return request;
     }
 
