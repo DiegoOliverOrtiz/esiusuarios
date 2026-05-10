@@ -1,11 +1,11 @@
 package esi.edu.usuarios.usuarios.services;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Map;
@@ -13,9 +13,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
-
-import com.warrenstrange.googleauth.GoogleAuthenticator;
-import com.warrenstrange.googleauth.GoogleAuthenticatorKey;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,8 +22,11 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import esi.edu.usuarios.usuarios.dao.PasswordResetTokenDao;
+import com.warrenstrange.googleauth.GoogleAuthenticator;
+import com.warrenstrange.googleauth.GoogleAuthenticatorKey;
+
 import esi.edu.usuarios.usuarios.dao.PasswordHistoryDao;
+import esi.edu.usuarios.usuarios.dao.PasswordResetTokenDao;
 import esi.edu.usuarios.usuarios.dao.UserDao;
 import esi.edu.usuarios.usuarios.dto.RegisterUserRequest;
 import esi.edu.usuarios.usuarios.dto.TwoFactorSetupResponse;
@@ -137,8 +137,8 @@ public class UserService {
             .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado."));
 
         if (!user.isTwoFactorEnabled() || !verifyTotp(user, code)) {
-            logger.warn("Codigo 2FA invalido para usuario {}", user.getId());
-            throw new IllegalArgumentException("Codigo 2FA invalido.");
+            logger.warn("Codigo 2FA inválido para usuario {}", user.getId());
+            throw new IllegalArgumentException("Codigo 2FA inválido.");
         }
 
         logger.info("2FA verificado correctamente para usuario {}", user.getId());
@@ -164,7 +164,7 @@ public class UserService {
     public UserResponse verifyAndEnableTwoFactor(String token, String code) {
         User user = authenticatedUser(token);
         if (!verifyTotp(user, code)) {
-            throw new IllegalArgumentException("Codigo 2FA invalido.");
+            throw new IllegalArgumentException("Codigo 2FA inválido.");
         }
 
         user.setTwoFactorEnabled(true);
@@ -229,7 +229,7 @@ public class UserService {
         validateProfileFields(request);
 
         if (!EMAIL_PATTERN.matcher(request.getEmail()).matches()) {
-            throw new IllegalArgumentException("El correo no tiene un formato valido.");
+            throw new IllegalArgumentException("El correo no tiene un formato válido.");
         }
         Optional<User> existingEmail = findByCanonicalEmail(request.getEmail());
         if (existingEmail.isPresent() && !existingEmail.get().getId().equals(user.getId())) {
@@ -258,7 +258,7 @@ public class UserService {
 
     public String confirmRegistration(String token) {
         User user = this.userDao.findByConfirmationToken(token)
-            .orElseThrow(() -> new IllegalArgumentException("Token de confirmacion no valido."));
+            .orElseThrow(() -> new IllegalArgumentException("Token de confirmacion no válido."));
 
         user.setConfirmed(true);
         user.setConfirmationToken(null);
@@ -273,7 +273,7 @@ public class UserService {
         validatePersonalNames(request.getNombre(), request.getApellidos());
 
         if (!EMAIL_PATTERN.matcher(request.getEmail()).matches()) {
-            throw new IllegalArgumentException("El correo no tiene un formato valido.");
+            throw new IllegalArgumentException("El correo no tiene un formato válido.");
         }
         if (findByCanonicalEmail(request.getEmail()).isPresent()) {
             throw new IllegalArgumentException("Ya existe una cuenta con ese correo.");
@@ -386,7 +386,7 @@ public class UserService {
 
     private void validatePersonalNames(String nombre, String apellidos) {
         if (!isValidHumanName(nombre) || !isValidHumanName(apellidos)) {
-            throw new IllegalArgumentException("Nombre o apellidos no validos.");
+            throw new IllegalArgumentException("Nombre o apellidos no válidos.");
         }
     }
 
