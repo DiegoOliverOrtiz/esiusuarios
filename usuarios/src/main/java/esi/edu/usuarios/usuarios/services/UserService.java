@@ -256,6 +256,38 @@ public class UserService {
             .orElse(null);
     }
 
+    @Transactional
+    public long creditWallet(String email, Long amount, String reference) {
+        if (amount == null || amount <= 0) {
+            throw new IllegalArgumentException("Importe no valido.");
+        }
+        User user = findByCanonicalEmail(normalizeEmail(email))
+            .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado."));
+        long updatedBalance = user.getWalletBalanceCents() + amount;
+        user.setWalletBalanceCents(updatedBalance);
+        this.userDao.save(user);
+        logger.info("Monedero abonado usuarioId={} amount={} reference={}", user.getId(), amount, reference);
+        return updatedBalance;
+    }
+
+    @Transactional
+    public long debitWallet(String email, Long amount, String reference) {
+        if (amount == null || amount <= 0) {
+            throw new IllegalArgumentException("Importe no valido.");
+        }
+        User user = findByCanonicalEmail(normalizeEmail(email))
+            .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado."));
+        long currentBalance = user.getWalletBalanceCents();
+        if (currentBalance < amount) {
+            throw new IllegalArgumentException("Saldo insuficiente en el monedero.");
+        }
+        long updatedBalance = currentBalance - amount;
+        user.setWalletBalanceCents(updatedBalance);
+        this.userDao.save(user);
+        logger.info("Monedero cargado usuarioId={} amount={} reference={}", user.getId(), amount, reference);
+        return updatedBalance;
+    }
+
     public String confirmRegistration(String token) {
         User user = this.userDao.findByConfirmationToken(token)
             .orElseThrow(() -> new IllegalArgumentException("Token de confirmacion no válido."));

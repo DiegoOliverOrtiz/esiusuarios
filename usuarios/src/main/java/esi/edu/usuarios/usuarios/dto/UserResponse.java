@@ -11,6 +11,7 @@ public class UserResponse {
     private final java.time.LocalDate fechaNacimiento;
     private final boolean twoFactorEnabled;
     private final String rol;
+    private final Long walletBalanceCents;
 
     public UserResponse(User user) {
         this.id = user.getId();
@@ -21,6 +22,7 @@ public class UserResponse {
         this.fechaNacimiento = user.getFechaNacimiento();
         this.twoFactorEnabled = user.isTwoFactorEnabled();
         this.rol = user.getRol();
+        this.walletBalanceCents = user.getWalletBalanceCents();
     }
 
     public Long getId() {
@@ -53,5 +55,9 @@ public class UserResponse {
 
     public String getRol() {
         return rol;
+    }
+
+    public Long getWalletBalanceCents() {
+        return walletBalanceCents;
     }
 }

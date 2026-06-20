@@ -14,6 +14,8 @@ import org.springframework.web.server.ResponseStatusException;
 import esi.edu.usuarios.usuarios.dto.MessageResponse;
 import esi.edu.usuarios.usuarios.dto.TicketEmailRequest;
 import esi.edu.usuarios.usuarios.dto.TokenCheckRequest;
+import esi.edu.usuarios.usuarios.dto.WalletCreditRequest;
+import esi.edu.usuarios.usuarios.dto.WalletDebitRequest;
 import esi.edu.usuarios.usuarios.services.EmailServiceBrevo;
 import esi.edu.usuarios.usuarios.services.UserService;
 import jakarta.validation.Valid;
@@ -53,6 +55,26 @@ public class ExternalController {
         validateInternalSecret(internalSecret);
         emailService.sendTicketEmail(request.getTo(), request.getSubject(), request.getHtml());
         return new MessageResponse("Entradas enviadas correctamente.");
+    }
+
+    @PostMapping("/wallet/credit")
+    public MessageResponse creditWallet(
+        @RequestHeader(value = "X-Internal-Secret", required = false) String internalSecret,
+        @Valid @RequestBody WalletCreditRequest request
+    ) {
+        validateInternalSecret(internalSecret);
+        long balance = service.creditWallet(request.getEmail(), request.getAmount(), request.getReference());
+        return new MessageResponse("Monedero actualizado. Saldo: " + balance);
+    }
+
+    @PostMapping("/wallet/debit")
+    public MessageResponse debitWallet(
+        @RequestHeader(value = "X-Internal-Secret", required = false) String internalSecret,
+        @Valid @RequestBody WalletDebitRequest request
+    ) {
+        validateInternalSecret(internalSecret);
+        long balance = service.debitWallet(request.getEmail(), request.getAmount(), request.getReference());
+        return new MessageResponse("Monedero cargado. Saldo: " + balance);
     }
 
     private void validateInternalSecret(String internalSecret) {

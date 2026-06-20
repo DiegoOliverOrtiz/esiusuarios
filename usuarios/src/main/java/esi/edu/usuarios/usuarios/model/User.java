@@ -67,6 +67,9 @@ public class User {
     @Column(length = 1024)
     private String direccionEncrypted;
 
+    @Column
+    private Long walletBalanceCents = 0L;
+
     public User() {}
 
     public User(
@@ -239,6 +242,14 @@ public class User {
 
     public void setDireccionEncrypted(String direccionEncrypted) {
         this.direccionEncrypted = direccionEncrypted;
+    }
+
+    public Long getWalletBalanceCents() {
+        return walletBalanceCents == null ? 0L : walletBalanceCents;
+    }
+
+    public void setWalletBalanceCents(Long walletBalanceCents) {
+        this.walletBalanceCents = walletBalanceCents == null ? 0L : walletBalanceCents;
     }
 
     public String getName() {

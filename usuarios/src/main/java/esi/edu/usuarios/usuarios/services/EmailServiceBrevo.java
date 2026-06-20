@@ -137,9 +137,10 @@ public class EmailServiceBrevo extends EmailService {
             }
             logger.info("BREVO: correo enviado correctamente a {}", cleanTo);
         } catch (HttpStatusCodeException e) {
-            logger.warn("BREVO: proveedor rechazo el envio. status={}", e.getStatusCode());
+            String providerDetail = safeProviderDetail(e.getResponseBodyAsString());
+            logger.warn("BREVO: proveedor rechazo el envio. status={} body={}", e.getStatusCode(), providerDetail);
             throw new IllegalStateException(
-                "Brevo ha rechazado el envio. Revisa que la API key sea SMTP/transaccional y que el remitente este verificado.",
+                "Brevo ha rechazado el envio. Status " + e.getStatusCode().value() + ". " + providerDetail,
                 e
             );
         } catch (RestClientException e) {
@@ -168,6 +169,15 @@ public class EmailServiceBrevo extends EmailService {
 
     private String clean(String value) {
         return value == null ? null : value.trim();
+    }
+
+    private String safeProviderDetail(String value) {
+        String cleaned = clean(value);
+        if (cleaned == null || cleaned.isBlank()) {
+            return "Sin detalle del proveedor.";
+        }
+        cleaned = cleaned.replaceAll("xkeysib-[A-Za-z0-9_-]+", "xkeysib-***");
+        return cleaned.length() <= 500 ? cleaned : cleaned.substring(0, 500);
     }
 
     private String validatedUrl(String value) {
